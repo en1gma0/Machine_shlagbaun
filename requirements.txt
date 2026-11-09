@@ -1,0 +1,7 @@
+fast-alpr[onnx]
+opencv-python
+fastapi
+uvicorn[standard]
+openpyxl
+python-multipart
+jinja2

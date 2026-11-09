@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="stats">
+  <div class="stat blue"><div class="v" id="s-in">0</div><div class="l">Въездов сегодня</div></div>
+  <div class="stat green"><div class="v" id="s-out">0</div><div class="l">Выездов сегодня</div></div>
+  <div class="stat orange"><div class="v" id="s-inside">0</div><div class="l">Сейчас на территории</div></div>
+  <div class="stat"><div class="v" id="s-unk">0</div><div class="l">Неизвестных сегодня</div></div>
+  <div class="stat red"><div class="v" id="s-den">0</div><div class="l">Отказов сегодня</div></div>
+</div>
+
+<div class="cams" style="margin-bottom:16px">
+  {% for c in cameras %}
+  <div class="card">
+    <div class="page-head" style="margin-bottom:10px">
+      <div>
+        <h2 style="margin:0">{{ c.name }}</h2>
+        <span class="muted small" id="cam-{{ c.id }}">подключение…</span>
+      </div>
+      <div class="actions">
+        <button class="ghost sm" onclick="camAction({{ c.id }}, 'reconnect')" title="Заново открыть видеопоток (камера не перезагружается)">↻ Переподключить</button>
+        <button class="ghost sm" onclick="camAction({{ c.id }}, 'reboot')" title="Перезагрузить саму камеру (1–2 минуты без видео)">⏻ Перезагрузить камеру</button>
+      </div>
+    </div>
+    <img class="video" id="video-{{ c.id }}" src="/video/{{ c.id }}" alt="видео: {{ c.name }}">
+    <p class="small" id="cam-msg-{{ c.id }}" style="margin:8px 0 0;display:none"></p>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="grid">
+  <div class="card flush">
+    <h2>Последние проезды <a class="small" href="/journal" style="font-weight:400;margin-left:8px">весь журнал →</a></h2>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Время</th><th>Фото</th><th>Номер</th><th>Направление</th><th>Категория / владелец</th><th>Доступ</th><th></th></tr></thead>
+      <tbody id="events"><tr><td colspan="7" class="empty">Загрузка…</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Последний проезд</h2>
+      <div id="last" class="last"><span class="muted">Пока проездов нет</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Открыть шлагбаум вручную</h2>
+      <form id="manual" class="row">
+        <label style="flex:1">Номер (необязательно)<input name="plate" placeholder="01A123BC"></label>
+        <label>Направление<select name="direction"><option value="entry">Въезд</option><option value="exit">Выезд</option></select></label>
+        <button class="big" style="margin-top:4px">Открыть шлагбаум</button>
+      </form>
+      <p class="muted small" id="manual-msg" style="margin:8px 0 0">Открытие записывается в журнал с пометкой «вручную».</p>
+    </div>
+
+    <div class="card flush">
+      <h2>Что видят камеры</h2>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>Время</th><th>Номер</th><th class="num">Увер.</th><th class="num">Ширина</th><th></th></tr></thead>
+        <tbody id="readings"></tbody>
+      </table>
+      </div>
+      <p class="muted small" style="margin:0;padding:10px 16px">Ширина номера: для надёжного чтения нужно от 100 px. Зона поиска меняется в «Настройках».</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const DIR = {entry: "Въезд", exit: "Выезд"};
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const status = e => `<span class="tag ${e.allowed ? "ok" : "bad"}">${e.allowed ? "разрешён" : "отказ"}</span>`
+  + (e.reason && !e.allowed ? `<div class="reason">${esc(e.reason)}</div>` : "")
+  + (e.gate_opened ? `<div class="muted small">шлагбаум открыт</div>` : "");
+
+function renderLast(e) {
+  if (!e) return;
+  const ok = e.allowed;
+  document.getElementById("last").innerHTML = `
+    ${e.snapshot ? `<a href="/snap/${e.snapshot}.jpg" target="_blank"><img src="/snap/${e.snapshot}_plate.jpg" alt=""></a>` : ""}
+    <div class="meta"><span class="plate-big">${esc(e.plate) || "—"}</span><span class="tag dir">${DIR[e.direction]}</span></div>
+    <div class="banner ${ok ? "ok" : "bad"}">${ok ? "✓ Доступ разрешён" : "✕ Отказ"}${!ok && e.reason ? `<div class="small" style="font-weight:400">${esc(e.reason)}</div>` : ""}</div>
+    <div class="muted">${esc(e.ts)} · ${esc(e.camera || (e.source === "manual" ? "вручную" : ""))}</div>
+    ${e.owner || e.category ? `<div>${esc(e.owner)} ${e.category ? `<span class="muted">· ${esc(e.category)}</span>` : ""}</div>` : ""}
+    ${!e.matched_plate && e.plate ? `<a class="btn ghost sm" href="/whitelist?add=${encodeURIComponent(e.plate)}">+ Добавить в белый список</a>` : ""}`;
+}
+
+async function tick() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    for (const c of s.cameras) {
+      const el = document.getElementById("cam-" + c.id);
+      if (!el) continue;
+      el.innerHTML = {
+        ok: s.models_loaded ? `<i class="dot on"></i>работает · ${c.fps} кадр/с` : '<i class="dot on"></i>загрузка моделей…',
+        frozen: `<i class="dot warn"></i>картинка зависла${c.frame_age ? ` (${Math.round(c.frame_age)} с без кадров)` : ""} — переподключаюсь…`,
+        rebooting: '<i class="dot warn"></i>камера перезагружается…',
+        offline: '<i class="dot off"></i>нет связи с камерой',
+      }[c.state] || "";
+    }
+    for (const [id, v] of [["s-in", s.today.entries], ["s-out", s.today.exits], ["s-unk", s.today.unknown],
+                           ["s-den", s.today.denied], ["s-inside", s.inside]])
+      document.getElementById(id).textContent = v || 0;
+
+    document.getElementById("readings").innerHTML = s.readings.slice(0, 10).map(r =>
+      `<tr><td class="muted nowrap">${r.t}<div class="small">${esc(r.cam)}</div></td><td class="plate">${esc(r.text)}</td>
+       <td class="num">${r.conf}</td><td class="num">${r.w}px</td>
+       <td class="small">${r.valid ? '<span class="tag ok">принят</span>' : `<span class="muted">${esc(r.why)}</span>`}</td></tr>`).join("")
+      || '<tr><td colspan="5" class="empty">Номеров в зонах поиска нет</td></tr>';
+
+    document.getElementById("events").innerHTML = s.events.map(e => `<tr>
+      <td class="nowrap">${e.ts.slice(11)}<div class="muted small">${e.ts.slice(0, 10)}</div></td>
+      <td>${e.snapshot ? `<a href="/snap/${e.snapshot}.jpg" target="_blank"><img class="thumb" src="/snap/${e.snapshot}_plate.jpg" alt=""></a>` : `<span class="muted small">${e.source === "manual" ? "вручную" : ""}</span>`}</td>
+      <td class="plate">${esc(e.plate) || "—"}</td>
+      <td><span class="tag dir">${DIR[e.direction]}</span></td>
+      <td>${esc(e.category) || '<span class="muted">—</span>'}<div class="muted small">${esc(e.owner)}</div></td>
+      <td>${status(e)}</td>
+      <td>${!e.matched_plate && e.plate ? `<a class="small nowrap" href="/whitelist?add=${encodeURIComponent(e.plate)}">+ в список</a>` : ""}</td></tr>`).join("")
+      || '<tr><td colspan="7" class="empty">Сегодня проездов пока нет</td></tr>';
+    renderLast(s.events[0]);
+  } catch (e) {}
+}
+
+async function camAction(id, action) {
+  if (action === "reboot" && !confirm("Перезагрузить камеру? Видео и распознавание с неё пропадут на 1–2 минуты.")) return;
+  const msg = document.getElementById("cam-msg-" + id);
+  msg.style.display = "block"; msg.className = "small muted"; msg.textContent = "Отправляю команду…";
+  try {
+    const r = await fetch(`/camera/${id}/${action}`, {method: "POST"});
+    const j = await r.json();
+    msg.className = "small " + (j.ok ? "muted" : "reason");
+    msg.textContent = j.ok ? j.message : "Ошибка: " + j.error;
+    if (j.ok) {
+      // переоткрыть видео в браузере, когда поток восстановится
+      const v = document.getElementById("video-" + id);
+      setTimeout(() => v.src = `/video/${id}?${Date.now()}`, action === "reboot" ? 90000 : 4000);
+      setTimeout(() => msg.style.display = "none", action === "reboot" ? 150000 : 15000);
+    }
+  } catch (e) { msg.className = "small reason"; msg.textContent = "Сервер не ответил"; }
+}
+
+document.getElementById("manual").onsubmit = async ev => {
+  ev.preventDefault();
+  if (!confirm("Открыть шлагбаум?")) return;
+  const r = await (await fetch("/gate/open", {method: "POST", body: new FormData(ev.target)})).json();
+  document.getElementById("manual-msg").textContent = r.opened ? "✓ Команда на открытие отправлена"
+    : "Записано в журнал. Управление шлагбаумом пока не подключено (GATE_MODE=none).";
+  ev.target.reset();
+  tick();
+};
+tick(); setInterval(tick, 2000);
+</script>
+{% endblock %}

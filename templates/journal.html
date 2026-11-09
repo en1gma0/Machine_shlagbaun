@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="page-head">
+  <h1>Журнал въезда и выезда</h1>
+  <div class="actions">
+    <a class="btn ghost" href="/journal/export?{{ qs }}">⬇ Excel</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="chips" style="margin-bottom:12px">
+    {% for name, a, b, on in periods %}<a class="{{ 'on' if on }}" href="/journal?date_from={{ a }}&date_to={{ b }}{{ '&' ~ rest if rest }}">{{ name }}</a>{% endfor %}
+  </div>
+  <form method="get" class="row">
+    <label>С<input type="date" name="date_from" value="{{ f.date_from }}"></label>
+    <label>По<input type="date" name="date_to" value="{{ f.date_to }}"></label>
+    <label>Номер<input name="plate" value="{{ f.plate }}" placeholder="часть номера" style="width:130px"></label>
+    <label>Статус<select name="allowed">
+      <option value="">все</option>
+      <option value="1" {{ 'selected' if f.allowed=='1' }}>разрешён</option>
+      <option value="0" {{ 'selected' if f.allowed=='0' }}>отказ</option>
+      <option value="unknown" {{ 'selected' if f.allowed=='unknown' }}>нет в списке</option>
+      <option value="unverified" {{ 'selected' if f.allowed=='unverified' }}>не проверены</option></select></label>
+    <label>Направление<select name="direction">
+      <option value="">все</option>
+      <option value="entry" {{ 'selected' if f.direction=='entry' }}>въезд</option>
+      <option value="exit" {{ 'selected' if f.direction=='exit' }}>выезд</option></select></label>
+    <label>Категория<select name="category">
+      <option value="">все</option>
+      {% for c in categories %}<option value="{{ c.name }}" {{ 'selected' if f.category==c.name }}>{{ c.name }}</option>{% endfor %}
+      <option value="none" {{ 'selected' if f.category=='none' }}>без категории</option></select></label>
+    <button>Показать</button>
+    {% if f.plate or f.allowed or f.direction or f.category %}<a class="btn ghost" href="/journal?date_from={{ f.date_from }}&date_to={{ f.date_to }}">Сбросить</a>{% endif %}
+  </form>
+</div>
+
+<div class="note" style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
+  <span><b>Проверка номеров:</b> если камера ошиблась, исправьте номер и нажмите ✓; если номер верный, просто ✓.
+    Проверено {{ ds.verified }} из {{ ds.total }} фото, исправлено {{ ds.corrected }}.</span>
+  <a class="btn ghost sm" href="/dataset/export">⬇ Набор для обучения</a>
+</div>
+
+<div class="card flush">
+  <h2>Записей: {{ rows|length }}{% if rows|length >= 1000 %} <span class="muted small">(показаны последние 1000, уточните фильтр)</span>{% endif %}</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Время</th><th>Фото</th><th>Номер</th><th>Направление</th><th>Категория / владелец</th><th>Доступ</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr id="e{{ r.id }}">
+        <td class="nowrap">{{ r.ts[11:] }}<div class="muted small">{{ r.ts[:10] }} · {{ r.camera or ("вручную" if r.source=='manual' else "") }}</div></td>
+        <td>{% if r.snapshot %}<a href="/snap/{{ r.snapshot }}.jpg" target="_blank"><img class="thumb" src="/snap/{{ r.snapshot }}_plate.jpg" loading="lazy" alt=""></a>{% endif %}</td>
+        <td>
+          {% if r.snapshot %}
+          <form class="fix" method="post" action="/journal/{{ r.id }}/correct">
+            <input name="plate" value="{{ r.plate }}" aria-label="номер">
+            <input type="hidden" name="back" value="/journal?{{ qs }}">
+            <button class="sm {{ 'ghost' if r.verified }}" title="{{ 'Сохранить' if r.verified else 'Подтвердить или сохранить исправление' }}">✓</button>
+          </form>
+          {% if r.verified %}<span class="verified">проверен</span>{% endif %}
+          {% if r.raw_plate and r.raw_plate != r.plate %}<span class="muted small">камера: {{ r.raw_plate }}</span>{% endif %}
+          {% else %}<span class="plate">{{ r.plate or "—" }}</span>{% endif %}
+        </td>
+        <td><span class="tag dir">{{ DIR_RU[r.direction] }}</span></td>
+        <td>{{ r.category or "—" }}<div class="muted small">{{ r.owner }}</div></td>
+        <td><span class="tag {{ 'ok' if r.allowed else 'bad' }}">{{ "разрешён" if r.allowed else "отказ" }}</span>
+            {% if r.reason %}<div class="{{ 'reason' if not r.allowed else 'muted small' }}">{{ r.reason }}</div>{% endif %}
+            {% if r.gate_opened %}<div class="muted small">шлагбаум открыт</div>{% endif %}</td>
+        <td>{% if not r.matched_plate and r.plate %}<a class="small nowrap" href="/whitelist?add={{ r.plate|urlencode }}">+ в список</a>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="empty">Нет записей за выбранный период</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

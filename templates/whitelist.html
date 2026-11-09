@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="page-head">
+  <h1>Белый список</h1>
+  <div class="actions">
+    <form method="post" action="/whitelist/import" enctype="multipart/form-data" class="row" style="align-items:center">
+      <input type="file" name="file" accept=".xlsx" required style="max-width:230px">
+      <button class="ghost">⬆ Импорт Excel</button>
+    </form>
+    <a class="btn ghost" href="/whitelist/export">⬇ Excel</a>
+  </div>
+</div>
+
+<div class="card" id="form">
+  <h2>{{ "Изменить " ~ cur.plate if cur else "Добавить машину" }}</h2>
+  <form method="post" action="/whitelist/save" class="row">
+    <input type="hidden" name="id" value="{{ cur.id if cur else '' }}">
+    <label>Номер*<input name="plate" required value="{{ cur.plate if cur else prefill }}" placeholder="01A123BC" style="width:130px" {{ 'autofocus' if prefill }}></label>
+    <label>Категория<select name="category_id">
+      <option value="">— без категории (круглосуточно) —</option>
+      {% for c in categories %}<option value="{{ c.id }}" {{ 'selected' if cur and cur.category_id==c.id }}>{{ c.name }} · {{ schedule_text(c) }}</option>{% endfor %}
+    </select></label>
+    <label>Владелец<input name="owner" value="{{ cur.owner if cur else '' }}" placeholder="ФИО или организация"></label>
+    <label>Телефон<input name="phone" value="{{ cur.phone if cur else '' }}" style="width:140px"></label>
+    <label>Примечание<input name="note" value="{{ cur.note if cur else '' }}"></label>
+    <label>Действует до<input type="date" name="valid_until" value="{{ cur.valid_until if cur else '' }}"></label>
+    <button>Сохранить</button>
+    {% if cur or prefill %}<a class="btn ghost" href="/whitelist">Отмена</a>{% endif %}
+  </form>
+</div>
+
+<div class="card flush">
+  <div class="page-head" style="padding:14px 16px 0;margin-bottom:12px">
+    <h2 style="margin:0">Машин: {{ rows|length }}</h2>
+    <div class="chips">
+      <a class="{{ 'on' if not cat }}" href="/whitelist">Все</a>
+      {% for c in categories %}<a class="{{ 'on' if cat==c.id|string }}" href="/whitelist?cat={{ c.id }}"><span class="cat"><i style="background:{{ c.color }}"></i>{{ c.name }} ({{ c.cars }})</span></a>{% endfor %}
+      <a class="{{ 'on' if cat=='none' }}" href="/whitelist?cat=none">Без категории</a>
+    </div>
+  </div>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Номер</th><th>Категория</th><th>Владелец</th><th>Телефон</th><th>Примечание</th><th>Действует до</th><th>Статус</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="plate">{{ r.plate }}</td>
+        <td>{% if r.cat_name %}<span class="cat"><i style="background:{{ r.cat_color }}"></i>{{ r.cat_name }}</span>
+            <div class="muted small">{{ schedule_text(r) }}</div>{% else %}<span class="muted">круглосуточно</span>{% endif %}</td>
+        <td>{{ r.owner }}</td><td class="nowrap">{{ r.phone }}</td><td>{{ r.note }}</td>
+        <td class="nowrap">{{ r.valid_until or "бессрочно" }}</td>
+        <td><span class="tag {{ 'ok' if r.active else 'bad' }}">{{ "активен" if r.active else "отключён" }}</span></td>
+        <td class="nowrap">
+          <a class="btn ghost sm" href="/whitelist?edit={{ r.id }}#form">Изменить</a>
+          <form class="inline" method="post" action="/whitelist/{{ r.id }}/toggle"><button class="ghost sm">{{ "Отключить" if r.active else "Включить" }}</button></form>
+          <form class="inline" method="post" action="/whitelist/{{ r.id }}/delete" onsubmit="return confirm('Удалить {{ r.plate }} из белого списка?')"><button class="danger sm">Удалить</button></form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="empty">Список пуст. Добавьте машину формой выше или загрузите Excel.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="muted small" style="margin:0;padding:10px 16px">Excel для импорта: Номер | Владелец | Телефон | Примечание | Действует до (ГГГГ-ММ-ДД) | Категория. Первая строка — заголовок. Существующие номера обновляются.</p>
+</div>
+{% endblock %}

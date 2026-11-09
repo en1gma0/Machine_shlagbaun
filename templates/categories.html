@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="page-head"><h1>Категории и расписание въезда</h1></div>
+
+<div class="card" id="form">
+  <h2>{{ "Изменить категорию «" ~ cur.name ~ "»" if cur else "Новая категория" }}</h2>
+  <form method="post" action="/categories/save" class="row">
+    <input type="hidden" name="id" value="{{ cur.id if cur else '' }}">
+    <label>Название*<input name="name" required value="{{ cur.name if cur else '' }}" placeholder="например, Подрядчики"></label>
+    <label>Цвет<input type="color" name="color" value="{{ cur.color if cur else '#2563eb' }}" style="width:52px;height:36px;padding:2px"></label>
+    <div class="field">Дни въезда
+      <span class="row" style="gap:8px;min-height:36px;align-items:center">
+        {% for d in DAYS_RU %}<label class="check"><input type="checkbox" name="d{{ loop.index0 }}" {{ 'checked' if (not cur or cur.days[loop.index0]=='1') }}>{{ d }}</label>{% endfor %}
+      </span>
+    </div>
+    <label>С<input type="time" name="time_from" value="{{ cur.time_from if cur else '00:00' }}"></label>
+    <label>До<input type="time" name="time_to" value="{{ cur.time_to if cur else '23:59' }}"></label>
+    <div class="field">&nbsp;<label class="check" style="min-height:36px"><input type="checkbox" name="exit_any_time" {{ 'checked' if (not cur or cur.exit_any_time) }}> выезд в любое время</label></div>
+    <button>Сохранить</button>
+    {% if cur %}<a class="btn ghost" href="/categories">Отмена</a>{% endif %}
+  </form>
+  <p class="muted small" style="margin:10px 0 0">Вне расписания шлагбаум не откроется, в журнале будет «отказ: вне расписания». Ночная смена задаётся через полночь: с 22:00 до 06:00.</p>
+</div>
+
+<div class="card flush">
+  <h2>Категории ({{ rows|length }})</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Категория</th><th>Въезд разрешён</th><th>Выезд</th><th class="num">Машин</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td><span class="cat"><i style="background:{{ r.color }}"></i><b>{{ r.name }}</b></span></td>
+        <td>{{ schedule_text(r) }}</td>
+        <td>{{ "в любое время" if r.exit_any_time else "по расписанию" }}</td>
+        <td class="num"><a href="/whitelist?cat={{ r.id }}">{{ r.cars }}</a></td>
+        <td class="nowrap" style="text-align:right">
+          <a class="btn ghost sm" href="/categories?edit={{ r.id }}#form">Изменить</a>
+          <form class="inline" method="post" action="/categories/{{ r.id }}/delete" onsubmit="return confirm('Удалить категорию «{{ r.name }}»? Машины останутся в белом списке без категории (въезд круглосуточно).')"><button class="danger sm">Удалить</button></form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="empty">Категорий нет</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="muted small" style="margin:0;padding:10px 16px">Машины без категории пропускаются круглосуточно, если пропуск активен и не истёк.</p>
+</div>
+{% endblock %}

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="page-head">
+  <h1>Отчёты <span class="muted" style="font-weight:400;font-size:15px">{{ date_from }} — {{ date_to }}</span></h1>
+  <div class="actions"><a class="btn ghost" href="/reports/export?date_from={{ date_from }}&date_to={{ date_to }}">⬇ Excel (все листы)</a></div>
+</div>
+
+<div class="card">
+  <div class="row" style="justify-content:space-between">
+    <div class="chips">
+      {% for name, a, b, on in periods %}<a class="{{ 'on' if on }}" href="/reports?date_from={{ a }}&date_to={{ b }}">{{ name }}</a>{% endfor %}
+    </div>
+    <form method="get" class="row">
+      <label>С<input type="date" name="date_from" value="{{ date_from }}"></label>
+      <label>По<input type="date" name="date_to" value="{{ date_to }}"></label>
+      <button>Показать</button>
+    </form>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat blue"><div class="v">{{ totals.entries }}</div><div class="l">Въездов</div></div>
+  <div class="stat green"><div class="v">{{ totals.exits }}</div><div class="l">Выездов</div></div>
+  <div class="stat orange"><div class="v">{{ inside|length }}</div><div class="l">Сейчас на территории</div></div>
+  <div class="stat"><div class="v">{{ totals.unknown }}</div><div class="l">Неизвестных проездов</div></div>
+  <div class="stat red"><div class="v">{{ totals.denied }}</div><div class="l">Отказов</div></div>
+  <div class="stat"><div class="v">{{ totals.opened }}</div><div class="l">Открытий шлагбаума</div></div>
+</div>
+
+<div class="grid">
+  <div class="card flush">
+    <h2>По дням</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>День</th><th class="num">Въездов</th><th class="num">Выездов</th><th class="num">Разных машин</th><th class="num">Неизвестных</th><th class="num">Отказов</th></tr></thead>
+      <tbody>
+      {% for r in by_day %}<tr><td>{{ r.day }}</td><td class="num">{{ r.entries }}</td><td class="num">{{ r.exits }}</td><td class="num">{{ r.unique_cars }}</td><td class="num">{{ r.unknown }}</td><td class="num">{{ r.denied }}</td></tr>
+      {% else %}<tr><td colspan="6" class="empty">Нет данных за период</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h2>Проезды по часам</h2>
+    {% set mx = (by_hour|max) or 1 %}
+    <div class="bars">
+      {% for c in by_hour %}<div title="{{ loop.index0 }}:00 — {{ c }}" style="height:{{ (c / mx * 100)|round }}%;min-height:{{ 2 if c else 0 }}px"></div>{% endfor %}
+    </div>
+    <div class="bars-x"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card flush">
+    <h2>По категориям</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Категория</th><th class="num">Въездов</th><th class="num">Выездов</th><th class="num">Разных машин</th><th class="num">Отказов</th></tr></thead>
+      <tbody>
+      {% for r in by_cat %}<tr><td>{{ r.cat }}</td><td class="num">{{ r.entries }}</td><td class="num">{{ r.exits }}</td><td class="num">{{ r.unique_cars }}</td><td class="num">{{ r.denied }}</td></tr>
+      {% else %}<tr><td colspan="5" class="empty">Нет данных за период</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card flush">
+    <h2>Сейчас на территории ({{ inside|length }})</h2>
+    <div class="scroll"><table><tbody>
+    {% for r in inside %}<tr><td class="plate">{{ r.plate }}</td><td>{{ r.category or "—" }}<div class="muted small">{{ r.owner }}</div></td><td class="muted small nowrap">с {{ r.ts }}</td></tr>
+    {% else %}<tr><td class="empty">Никого</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+</div>
+
+<div class="card flush">
+  <h2>Отказы в доступе ({{ denied|length }})</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Время</th><th>Номер</th><th>Направление</th><th>Категория / владелец</th><th>Причина</th></tr></thead>
+    <tbody>
+    {% for r in denied %}<tr><td class="nowrap">{{ r.ts }}</td><td class="plate">{{ r.plate }}</td><td><span class="tag dir">{{ DIR_RU[r.direction] }}</span></td><td>{{ r.category or "—" }}<div class="muted small">{{ r.owner }}</div></td><td class="reason">{{ r.reason }}</td></tr>
+    {% else %}<tr><td colspan="5" class="empty">Отказов нет</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="grid">
+  <div class="card flush">
+    <h2>Визиты: въезд → выезд</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Номер</th><th>Категория / владелец</th><th>Въезд</th><th>Выезд</th><th class="num">На территории</th></tr></thead>
+      <tbody>
+      {% for v in visits %}
+        <tr><td class="plate">{{ v.plate }}</td><td>{{ v.category or "—" }}<div class="muted small">{{ v.owner }}</div></td><td class="nowrap">{{ v.start or "—" }}</td><td class="nowrap">{{ v.end or "—" }}</td><td class="num">{{ v.duration or "—" }}</td></tr>
+      {% else %}<tr><td colspan="5" class="empty">Нет данных за период</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card flush">
+    <h2>Частые машины</h2>
+    <div class="scroll"><table><tbody>
+    {% for r in top %}<tr><td class="plate">{{ r.plate }}</td><td>{{ r.category or "—" }}<div class="muted small">{{ r.owner }}</div></td><td class="num">{{ r.cnt }}</td>
+      <td><span class="tag {{ 'ok' if r.known else 'bad' }}">{{ "в списке" if r.known else "неизвестен" }}</span></td></tr>
+    {% else %}<tr><td class="empty">Нет данных за период</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+</div>
+{% endblock %}
