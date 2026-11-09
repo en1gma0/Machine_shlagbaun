@@ -4,8 +4,8 @@ import threading
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-ENV_PATH = BASE_DIR / ".env"
-DATA_DIR = BASE_DIR / "data"
+ENV_PATH = Path(os.environ.get("GATE_ENV_FILE", BASE_DIR / ".env"))
+DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data"))  # база, фото, логи
 SNAP_DIR = DATA_DIR / "snaps"
 DB_PATH = DATA_DIR / "gate.db"
 
@@ -67,6 +67,9 @@ for _i in range(1, 10):
             "roi": _get(f"CAMERA{_i}_ROI", _get("ROI", "") if _i == 1 else ""),
             "scale": float(_get(f"CAMERA{_i}_SCALE", "1")),
             "http_port": int(_get(f"CAMERA{_i}_HTTP_PORT", "80")),  # веб-порт камеры (для перезагрузки)
+            # 1 = слушать события камеры (AcuSense: пересечение линии транспортом) и фиксировать
+            #     проезд, даже если номер не прочитался
+            "acusense": _bool(f"CAMERA{_i}_ACUSENSE", False),
         })
 
 SITE_NAME = _get("SITE_NAME", _get("CAMERA_NAME", "Шлагбаум"))
@@ -97,11 +100,26 @@ GATE_HTTP_URL = _get("GATE_HTTP_URL", "")
 GATE_HTTP_METHOD = _get("GATE_HTTP_METHOD", "GET")
 EXIT_OPEN_ALL = _bool("EXIT_OPEN_ALL", True)  # на выезд открывать всем
 
+# анти-passback: повторный въезд без выезда. warn = пометить в журнале, deny = не пускать, off = выключено
+ANTIPASSBACK = _get("ANTIPASSBACK", "warn")
+
 # --- Веб ---
 WEB_HOST = _get("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(_get("WEB_PORT", "8000"))
-WEB_USER = _get("WEB_USER", "admin")
-WEB_PASSWORD = _get("WEB_PASSWORD", "")  # пусто = без пароля
+SESSION_DAYS = int(_get("SESSION_DAYS", "14"))  # сколько дней помнить вход
+
+# --- Обслуживание ---
+SNAP_KEEP_DAYS = int(_get("SNAP_KEEP_DAYS", "90"))  # фото проездов старше - удаляются (0 = не удалять)
+BACKUP_DIR = Path(_get("BACKUP_DIR") or str(DATA_DIR / "backups"))  # лучше другой диск
+BACKUP_KEEP = int(_get("BACKUP_KEEP", "14"))  # сколько последних копий хранить
+BACKUP_HOUR = int(_get("BACKUP_HOUR", "3"))  # в котором часу делать копию и очистку
+
+# --- Мониторинг ---
+CAMERA_ALERT_MIN = float(_get("CAMERA_ALERT_MIN", "3"))  # камера недоступна дольше - тревога
+DISK_MIN_GB = float(_get("DISK_MIN_GB", "5"))  # свободного места меньше - тревога
+TELEGRAM_BOT_TOKEN = _get("TELEGRAM_BOT_TOKEN", "")  # необязательно: уведомления в Telegram
+TELEGRAM_CHAT_ID = _get("TELEGRAM_CHAT_ID", "")
 
 DATA_DIR.mkdir(exist_ok=True)
 SNAP_DIR.mkdir(exist_ok=True)
+BACKUP_DIR.mkdir(parents=True, exist_ok=True)

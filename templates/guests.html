@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="page-head"><h1>Гостевые пропуска</h1></div>
+
+<div class="card">
+  <h2>Выдать пропуск</h2>
+  <form method="post" action="/guests/create" class="row" id="gform">
+    <label>Номер машины*<input name="plate" required value="{{ prefill }}" placeholder="01A123BC" style="width:130px" {{ 'autofocus' if prefill }}></label>
+    <label>Кто / куда<input name="name" placeholder="ФИО, организация"></label>
+    <label>Примечание<input name="note" placeholder="к кому, цель визита"></label>
+    <label>С<input type="datetime-local" name="valid_from" value="{{ now }}"></label>
+    <label>До*<input type="datetime-local" name="valid_to" id="valid_to" required></label>
+    <label>Въездов<select name="max_entries">
+      <option value="1">1 (разовый)</option><option value="2">2</option><option value="5">5</option><option value="0">без ограничения</option>
+    </select></label>
+    <button>Выдать</button>
+  </form>
+  <div class="chips" style="margin-top:10px">
+    <span class="muted small" style="align-self:center">Быстро:</span>
+    {% for name, v in presets %}<a href="#" onclick="document.getElementById('valid_to').value='{{ v }}';return false">{{ name }}</a>{% endfor %}
+  </div>
+  <p class="muted small" style="margin:10px 0 0">Гость проезжает по номеру как машина из белого списка, пока пропуск действует. Выезд разрешён всегда. Разовый пропуск после въезда становится «использован».</p>
+</div>
+
+<div class="card flush">
+  <div class="page-head" style="padding:14px 16px 0;margin-bottom:12px">
+    <h2 style="margin:0">{{ "Действующие" if show=='active' else "Все пропуска" }} ({{ rows|length }})</h2>
+    <div class="chips">
+      <a class="{{ 'on' if show=='active' }}" href="/guests">Действующие</a>
+      <a class="{{ 'on' if show=='all' }}" href="/guests?show=all">Все</a>
+    </div>
+  </div>
+  <div class="scroll"><table>
+    <thead><tr><th>Номер</th><th>Гость</th><th>Действует</th><th class="num">Въездов</th><th>Статус</th><th>Выдал</th><th></th></tr></thead>
+    <tbody>
+    {% for g in rows %}{% set st = guest_status(g) %}
+      <tr>
+        <td class="plate">{{ g.plate }}</td>
+        <td>{{ g.name or "—" }}<div class="muted small">{{ g.note }}</div></td>
+        <td class="nowrap">{{ g.valid_from[:16] }}<div class="muted small">до {{ g.valid_to[:16] }}</div></td>
+        <td class="num">{{ g.used_entries }} / {{ g.max_entries or "∞" }}</td>
+        <td><span class="tag {{ 'ok' if st=='активен' else 'bad' }}">{{ st }}</span></td>
+        <td class="muted small">{{ g.created_by }}<div>{{ g.created_at[:16] }}</div></td>
+        <td style="text-align:right">{% if st == 'активен' or st == 'ещё не начался' %}
+          <form class="inline" method="post" action="/guests/{{ g.id }}/revoke" onsubmit="return confirm('Отозвать пропуск {{ g.plate }}?')"><button class="danger sm">Отозвать</button></form>
+        {% endif %}</td>
+      </tr>
+    {% else %}<tr><td colspan="7" class="empty">{{ "Действующих пропусков нет" if show=='active' else "Пропусков ещё не выдавали" }}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

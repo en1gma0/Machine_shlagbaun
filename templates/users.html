@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="page-head"><h1>Пользователи</h1></div>
+{% if error %}<div class="error" style="margin-bottom:16px">{{ error }}</div>{% endif %}
+
+<div class="card" id="form">
+  <h2>{{ "Изменить " ~ cur.username if cur else "Новый пользователь" }}</h2>
+  <form method="post" action="/users/save" class="row">
+    <input type="hidden" name="id" value="{{ cur.id if cur else '' }}">
+    <label>Логин*<input name="username" value="{{ cur.username if cur else '' }}" {{ 'disabled' if cur else 'required' }} autocomplete="off"></label>
+    <label>Имя<input name="full_name" value="{{ cur.full_name if cur else '' }}" placeholder="ФИО"></label>
+    <label>Роль<select name="role">
+      {% for k, v in ROLES.items() %}<option value="{{ k }}" {{ 'selected' if (cur and cur.role==k) or (not cur and k=='guard') }}>{{ v }}</option>{% endfor %}
+    </select></label>
+    <label>{{ "Новый пароль (пусто = не менять)" if cur else "Пароль* (от 6 символов)" }}<input type="password" name="password" {{ '' if cur else 'required' }} autocomplete="new-password"></label>
+    <button>Сохранить</button>
+    {% if cur %}<a class="btn ghost" href="/users">Отмена</a>{% endif %}
+  </form>
+  <p class="muted small" style="margin:10px 0 0">
+    <b>Охранник</b>: монитор, журнал (проверка номеров, комментарии), гостевые пропуска, отчёты, ручное открытие, переподключение камер.<br>
+    <b>Администратор</b>: всё, плюс белый список, категории, настройки, пользователи, аудит, удаление записей журнала, резервные копии.
+  </p>
+</div>
+
+<div class="card flush">
+  <h2>Учётные записи ({{ rows|length }})</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Статус</th><th>Последний вход</th><th></th></tr></thead>
+    <tbody>
+    {% for u in rows %}
+      <tr>
+        <td><b>{{ u.username }}</b>{% if u.id == request.state.user.id %} <span class="muted small">(вы)</span>{% endif %}</td>
+        <td>{{ u.full_name }}</td>
+        <td><span class="tag {{ 'dir' if u.role=='admin' else '' }}">{{ ROLES[u.role] }}</span></td>
+        <td><span class="tag {{ 'ok' if u.active else 'bad' }}">{{ "активен" if u.active else "отключён" }}</span></td>
+        <td class="muted nowrap">{{ u.last_login or "—" }}</td>
+        <td class="nowrap" style="text-align:right">
+          <a class="btn ghost sm" href="/users?edit={{ u.id }}#form">Изменить</a>
+          {% if u.id != request.state.user.id %}
+          <form class="inline" method="post" action="/users/{{ u.id }}/toggle"><button class="ghost sm">{{ "Отключить" if u.active else "Включить" }}</button></form>
+          <form class="inline" method="post" action="/users/{{ u.id }}/delete" onsubmit="return confirm('Удалить пользователя {{ u.username }}?')"><button class="danger sm">Удалить</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="muted small" style="margin:0;padding:10px 16px">Отключённый пользователь сразу выходит из системы на всех устройствах. Все действия пользователей записываются в «Аудит».</p>
+</div>
+{% endblock %}

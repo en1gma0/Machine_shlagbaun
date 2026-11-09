@@ -49,9 +49,10 @@
       <form id="manual" class="row">
         <label style="flex:1">Номер (необязательно)<input name="plate" placeholder="01A123BC"></label>
         <label>Направление<select name="direction"><option value="entry">Въезд</option><option value="exit">Выезд</option></select></label>
+        <label style="flex-basis:100%">Причина / комментарий<input name="comment" placeholder="например: скорая, доставка, номер не читается"></label>
         <button class="big" style="margin-top:4px">Открыть шлагбаум</button>
       </form>
-      <p class="muted small" id="manual-msg" style="margin:8px 0 0">Открытие записывается в журнал с пометкой «вручную».</p>
+      <p class="muted small" id="manual-msg" style="margin:8px 0 0">Открытие записывается в журнал и аудит с вашим именем.</p>
     </div>
 
     <div class="card flush">
@@ -70,9 +71,15 @@
 <script>
 const DIR = {entry: "Въезд", exit: "Выезд"};
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const status = e => `<span class="tag ${e.allowed ? "ok" : "bad"}">${e.allowed ? "разрешён" : "отказ"}</span>`
-  + (e.reason && !e.allowed ? `<div class="reason">${esc(e.reason)}</div>` : "")
+const status = e => `<span class="tag ${e.allowed ? "ok" : "bad"}">${e.allowed ? "разрешён" : (e.source === "vehicle" ? "без номера" : "отказ")}</span>`
+  + (e.flag ? ` <span class="flag">⚠ повторный въезд</span>` : "")
+  + (e.reason && (!e.allowed || e.flag) ? `<div class="reason">${esc(e.reason)}</div>` : "")
   + (e.gate_opened ? `<div class="muted small">шлагбаум открыт</div>` : "");
+const addLinks = e => {
+  if (e.matched_plate || !e.plate) return e.suggest ? `<a class="small nowrap" href="/journal#e${e.id}">проверить</a>` : "";
+  return (IS_ADMIN ? `<a class="small nowrap" href="/whitelist?add=${encodeURIComponent(e.plate)}">+ в список</a><br>` : "")
+    + `<a class="small nowrap" href="/guests?add=${encodeURIComponent(e.plate)}">+ гостевой</a>`;
+};
 
 function renderLast(e) {
   if (!e) return;
@@ -80,10 +87,13 @@ function renderLast(e) {
   document.getElementById("last").innerHTML = `
     ${e.snapshot ? `<a href="/snap/${e.snapshot}.jpg" target="_blank"><img src="/snap/${e.snapshot}_plate.jpg" alt=""></a>` : ""}
     <div class="meta"><span class="plate-big">${esc(e.plate) || "—"}</span><span class="tag dir">${DIR[e.direction]}</span></div>
-    <div class="banner ${ok ? "ok" : "bad"}">${ok ? "✓ Доступ разрешён" : "✕ Отказ"}${!ok && e.reason ? `<div class="small" style="font-weight:400">${esc(e.reason)}</div>` : ""}</div>
-    <div class="muted">${esc(e.ts)} · ${esc(e.camera || (e.source === "manual" ? "вручную" : ""))}</div>
+    <div class="banner ${ok ? "ok" : "bad"}">${ok ? "✓ Доступ разрешён" : (e.source === "vehicle" ? "? Машина без номера" : "✕ Отказ")}${!ok && e.reason ? `<div class="small" style="font-weight:400">${esc(e.reason)}</div>` : ""}</div>
+    ${e.flag ? `<div class="flag">⚠ Повторный въезд без выезда</div>` : ""}
+    ${e.suggest && !e.verified ? `<div>Похоже на <b class="plate">${esc(e.suggest)}</b> — <a href="/journal#e${e.id}">проверить в журнале</a></div>` : ""}
+    <div class="muted">${esc(e.ts)} · ${esc(e.camera || (e.source === "manual" ? "вручную: " + e.username : ""))}</div>
     ${e.owner || e.category ? `<div>${esc(e.owner)} ${e.category ? `<span class="muted">· ${esc(e.category)}</span>` : ""}</div>` : ""}
-    ${!e.matched_plate && e.plate ? `<a class="btn ghost sm" href="/whitelist?add=${encodeURIComponent(e.plate)}">+ Добавить в белый список</a>` : ""}`;
+    ${e.comment ? `<div class="small">💬 ${esc(e.comment)}</div>` : ""}
+    <div>${addLinks(e)}</div>`;
 }
 
 async function tick() {
@@ -98,6 +108,9 @@ async function tick() {
         rebooting: '<i class="dot warn"></i>камера перезагружается…',
         offline: '<i class="dot off"></i>нет связи с камерой',
       }[c.state] || "";
+      if (c.events !== null) el.innerHTML += c.events
+        ? ` · <span title="Камера сама сообщает о проезде машин (AcuSense)">события: ✓${c.vehicle_events ? ", машин " + c.vehicle_events : ""}</span>`
+        : ' · <span class="reason">события камеры: нет связи</span>';
     }
     for (const [id, v] of [["s-in", s.today.entries], ["s-out", s.today.exits], ["s-unk", s.today.unknown],
                            ["s-den", s.today.denied], ["s-inside", s.inside]])
@@ -116,7 +129,7 @@ async function tick() {
       <td><span class="tag dir">${DIR[e.direction]}</span></td>
       <td>${esc(e.category) || '<span class="muted">—</span>'}<div class="muted small">${esc(e.owner)}</div></td>
       <td>${status(e)}</td>
-      <td>${!e.matched_plate && e.plate ? `<a class="small nowrap" href="/whitelist?add=${encodeURIComponent(e.plate)}">+ в список</a>` : ""}</td></tr>`).join("")
+      <td>${addLinks(e)}</td></tr>`).join("")
       || '<tr><td colspan="7" class="empty">Сегодня проездов пока нет</td></tr>';
     renderLast(s.events[0]);
   } catch (e) {}

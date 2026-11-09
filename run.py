@@ -4,7 +4,7 @@ import sys
 
 import uvicorn
 
-from app import config
+from app import config, maintenance
 from app.recognizer import hub
 from app.web import app
 
@@ -19,4 +19,5 @@ if __name__ == "__main__":
     if not config.CAMERAS:
         sys.exit("Укажите CAMERA1_URL в файле .env")
     hub.start()
+    maintenance.start(hub)
     uvicorn.run(app, host=config.WEB_HOST, port=config.WEB_PORT, log_level="warning")

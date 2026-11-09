@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ "Первый запуск" if setup else "Вход" }} · {{ SITE_NAME }}</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚧</text></svg>">
+<link rel="stylesheet" href="/static/app.css?v=5">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="card login-box">
+    <h1 style="margin-bottom:4px">🚧 {{ SITE_NAME }}</h1>
+    {% if setup %}
+      <p class="muted" style="margin:0 0 16px">Первый запуск: создайте учётную запись администратора. Охранников он потом добавит на странице «Пользователи».</p>
+    {% else %}
+      <p class="muted" style="margin:0 0 16px">Учёт проездов. Войдите, чтобы продолжить.</p>
+    {% endif %}
+    {% set msg = request.query_params.get("msg") %}
+    {% if msg == "created" %}<div class="flash">✓ Администратор создан. Войдите.</div>{% endif %}
+    {% if msg == "password" %}<div class="flash">✓ Пароль изменён. Войдите с новым паролем.</div>{% endif %}
+    {% if error %}<div class="error" style="margin-bottom:12px">{{ error }}</div>{% endif %}
+    <form method="post" action="{{ '/setup' if setup else '/login' }}">
+      <label>Логин<input name="username" required autofocus autocomplete="username"></label>
+      {% if setup %}<label>Имя (необязательно)<input name="full_name" placeholder="например, Иванов И."></label>{% endif %}
+      <label>Пароль<input type="password" name="password" required autocomplete="{{ 'new-password' if setup else 'current-password' }}"></label>
+      {% if setup %}<label>Пароль ещё раз<input type="password" name="password2" required autocomplete="new-password"></label>{% endif %}
+      {% if not setup %}<input type="hidden" name="next" value="{{ next or '/' }}">{% endif %}
+      <button class="big">{{ "Создать администратора" if setup else "Войти" }}</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>

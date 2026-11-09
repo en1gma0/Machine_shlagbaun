@@ -15,12 +15,15 @@
     <label>С<input type="date" name="date_from" value="{{ f.date_from }}"></label>
     <label>По<input type="date" name="date_to" value="{{ f.date_to }}"></label>
     <label>Номер<input name="plate" value="{{ f.plate }}" placeholder="часть номера" style="width:130px"></label>
-    <label>Статус<select name="allowed">
+    <label>Показать<select name="allowed">
       <option value="">все</option>
       <option value="1" {{ 'selected' if f.allowed=='1' }}>разрешён</option>
       <option value="0" {{ 'selected' if f.allowed=='0' }}>отказ</option>
       <option value="unknown" {{ 'selected' if f.allowed=='unknown' }}>нет в списке</option>
-      <option value="unverified" {{ 'selected' if f.allowed=='unverified' }}>не проверены</option></select></label>
+      <option value="noplate" {{ 'selected' if f.allowed=='noplate' }}>машины без номера</option>
+      <option value="flag" {{ 'selected' if f.allowed=='flag' }}>подозрительные</option>
+      <option value="unverified" {{ 'selected' if f.allowed=='unverified' }}>не проверены</option>
+      <option value="comment" {{ 'selected' if f.allowed=='comment' }}>с комментарием</option></select></label>
     <label>Направление<select name="direction">
       <option value="">все</option>
       <option value="entry" {{ 'selected' if f.direction=='entry' }}>въезд</option>
@@ -28,6 +31,7 @@
     <label>Категория<select name="category">
       <option value="">все</option>
       {% for c in categories %}<option value="{{ c.name }}" {{ 'selected' if f.category==c.name }}>{{ c.name }}</option>{% endfor %}
+      <option value="Гость" {{ 'selected' if f.category=='Гость' }}>Гость</option>
       <option value="none" {{ 'selected' if f.category=='none' }}>без категории</option></select></label>
     <button>Показать</button>
     {% if f.plate or f.allowed or f.direction or f.category %}<a class="btn ghost" href="/journal?date_from={{ f.date_from }}&date_to={{ f.date_to }}">Сбросить</a>{% endif %}
@@ -41,7 +45,7 @@
 </div>
 
 <div class="card flush">
-  <h2>Записей: {{ rows|length }}{% if rows|length >= 1000 %} <span class="muted small">(показаны последние 1000, уточните фильтр)</span>{% endif %}</h2>
+  <h2>Записей: {{ pg.total }}</h2>
   <div class="scroll">
   <table>
     <thead><tr><th>Время</th><th>Фото</th><th>Номер</th><th>Направление</th><th>Категория / владелец</th><th>Доступ</th><th></th></tr></thead>
@@ -49,24 +53,52 @@
     {% for r in rows %}
       <tr id="e{{ r.id }}">
         <td class="nowrap">{{ r.ts[11:] }}<div class="muted small">{{ r.ts[:10] }} · {{ r.camera or ("вручную" if r.source=='manual' else "") }}</div></td>
-        <td>{% if r.snapshot %}<a href="/snap/{{ r.snapshot }}.jpg" target="_blank"><img class="thumb" src="/snap/{{ r.snapshot }}_plate.jpg" loading="lazy" alt=""></a>{% endif %}</td>
+        <td>{% if r.snapshot %}<a href="/snap/{{ r.snapshot }}.jpg" target="_blank"><img class="thumb" src="/snap/{{ r.snapshot }}_plate.jpg" loading="lazy" alt="" onerror="this.replaceWith('фото удалено')"></a>{% endif %}</td>
         <td>
           {% if r.snapshot %}
           <form class="fix" method="post" action="/journal/{{ r.id }}/correct">
-            <input name="plate" value="{{ r.plate }}" aria-label="номер">
-            <input type="hidden" name="back" value="/journal?{{ qs }}">
+            <input name="plate" value="{{ r.plate }}" placeholder="{{ 'введите номер' if not r.plate }}" aria-label="номер">
+            <input type="hidden" name="back" value="{{ back }}">
             <button class="sm {{ 'ghost' if r.verified }}" title="{{ 'Сохранить' if r.verified else 'Подтвердить или сохранить исправление' }}">✓</button>
           </form>
           {% if r.verified %}<span class="verified">проверен</span>{% endif %}
           {% if r.raw_plate and r.raw_plate != r.plate %}<span class="muted small">камера: {{ r.raw_plate }}</span>{% endif %}
           {% else %}<span class="plate">{{ r.plate or "—" }}</span>{% endif %}
+          {% if r.suggest and r.suggest != r.plate and not r.verified %}
+          <form class="suggest" method="post" action="/journal/{{ r.id }}/correct">
+            <input type="hidden" name="plate" value="{{ r.suggest }}"><input type="hidden" name="back" value="{{ back }}">
+            похоже на <b>{{ r.suggest }}</b> <button class="ghost sm" style="padding:1px 8px">принять</button>
+          </form>
+          {% endif %}
         </td>
         <td><span class="tag dir">{{ DIR_RU[r.direction] }}</span></td>
         <td>{{ r.category or "—" }}<div class="muted small">{{ r.owner }}</div></td>
-        <td><span class="tag {{ 'ok' if r.allowed else 'bad' }}">{{ "разрешён" if r.allowed else "отказ" }}</span>
+        <td><span class="tag {{ 'ok' if r.allowed else 'bad' }}">{{ "разрешён" if r.allowed else ("без номера" if r.source=='vehicle' else "отказ") }}</span>
+            {% if r.flag %}<span class="flag">⚠ {{ FLAGS.get(r.flag, r.flag) }}</span>{% endif %}
             {% if r.reason %}<div class="{{ 'reason' if not r.allowed else 'muted small' }}">{{ r.reason }}</div>{% endif %}
-            {% if r.gate_opened %}<div class="muted small">шлагбаум открыт</div>{% endif %}</td>
-        <td>{% if not r.matched_plate and r.plate %}<a class="small nowrap" href="/whitelist?add={{ r.plate|urlencode }}">+ в список</a>{% endif %}</td>
+            {% if r.gate_opened %}<div class="muted small">шлагбаум открыт</div>{% endif %}
+            {% if r.comment %}<div class="small" style="margin-top:3px">💬 {{ r.comment }}</div>{% endif %}</td>
+        <td>
+          <details class="edit">
+            <summary>✎ изменить</summary>
+            <form method="post" action="/journal/{{ r.id }}/edit" class="row" style="flex-direction:column;align-items:stretch">
+              <input type="hidden" name="back" value="{{ back }}">
+              <label>Комментарий<input name="comment" value="{{ r.comment }}" placeholder="например: привёз груз, пропустил старший смены"></label>
+              <label>Направление<select name="direction">
+                <option value="entry" {{ 'selected' if r.direction=='entry' }}>Въезд</option>
+                <option value="exit" {{ 'selected' if r.direction=='exit' }}>Выезд</option></select></label>
+              <button class="sm">Сохранить</button>
+            </form>
+            {% if is_admin %}
+            <form method="post" action="/journal/{{ r.id }}/delete" onsubmit="return confirm('Удалить запись {{ r.ts }} {{ r.plate or '' }}? Фото тоже удалится. Действие попадёт в аудит.')" style="margin-top:8px">
+              <input type="hidden" name="back" value="{{ back }}">
+              <button class="danger sm">Удалить запись</button>
+            </form>
+            {% endif %}
+          </details>
+          {% if is_admin and not r.matched_plate and r.plate %}<a class="small nowrap" href="/whitelist?add={{ r.plate|urlencode }}">+ в список</a>{% endif %}
+          {% if not r.matched_plate and r.plate %}<div><a class="small nowrap" href="/guests?add={{ r.plate|urlencode }}">+ гостевой</a></div>{% endif %}
+        </td>
       </tr>
     {% else %}
       <tr><td colspan="7" class="empty">Нет записей за выбранный период</td></tr>
@@ -74,5 +106,6 @@
     </tbody>
   </table>
   </div>
+  {% set qs = qs %}{% include "_pager.html" %}
 </div>
 {% endblock %}

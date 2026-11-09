@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="page-head"><h1>Аудит: кто что делал</h1></div>
+<div class="card">
+  <div class="chips" style="margin-bottom:12px">
+    {% for name, a, b, on in periods %}<a class="{{ 'on' if on }}" href="/audit?date_from={{ a }}&date_to={{ b }}">{{ name }}</a>{% endfor %}
+  </div>
+  <form method="get" class="row">
+    <label>С<input type="date" name="date_from" value="{{ f.date_from }}"></label>
+    <label>По<input type="date" name="date_to" value="{{ f.date_to }}"></label>
+    <label>Пользователь<select name="username">
+      <option value="">все</option>
+      {% for u in users %}<option value="{{ u }}" {{ 'selected' if f.username==u }}>{{ u }}</option>{% endfor %}
+    </select></label>
+    <label>Поиск<input name="text" value="{{ f.text }}" placeholder="действие, номер…"></label>
+    <button>Показать</button>
+  </form>
+</div>
+<div class="card flush">
+  <h2>Записей: {{ pg.total }}</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Подробности</th><th>IP</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="nowrap">{{ r.ts }}</td>
+        <td>{{ r.username }}</td>
+        <td><b>{{ r.action }}</b></td>
+        <td>{{ r.details }}</td>
+        <td class="muted small">{{ r.ip }}</td>
+      </tr>
+    {% else %}<tr><td colspan="5" class="empty">Нет записей</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% include "_pager.html" %}
+</div>
+{% endblock %}

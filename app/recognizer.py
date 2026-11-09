@@ -47,6 +47,8 @@ class Hub:
     def start(self) -> None:
         for cam in self.cameras:
             cam.start_reader()
+            if cam.cfg.get("acusense"):
+                threading.Thread(target=listen_events, args=(cam,), daemon=True, name=f"events-{cam.id}").start()
         threading.Thread(target=self._load, daemon=True, name="alpr-load").start()
         threading.Thread(target=self._watchdog, daemon=True, name="watchdog").start()
 
@@ -91,16 +93,46 @@ class Hub:
                     return None
             self._recent[plate] = now
         direction = cam.direction if cam.direction in ("entry", "exit") else db.guess_direction(plate)
-        match, allowed, reason = db.decide(plate, direction)
-        should_open = allowed or (direction == "exit" and config.EXIT_OPEN_ALL)
+        d = db.decide(plate, direction)
+        should_open = d["allowed"] or (direction == "exit" and config.EXIT_OPEN_ALL)
         opened = gate.open_gate() if should_open else False
         snapshot = save_snapshot(plate, snap) if snap else ""
-        eid = db.add_event(plate, round(conf, 3), direction, allowed, opened, match=match, reason=reason,
-                           snapshot=snapshot, camera=cam.name)
-        self.last_event = {"id": eid, "plate": plate, "direction": direction, "allowed": allowed}
+        suggest = ""
+        if not d["matched_plate"]:  # не нашли - подсказать похожий номер из списка
+            s = db.suggest_plate([plate], max_distance=2)
+            suggest = s[0] if s else ""
+        eid = db.add_event(plate, round(conf, 3), direction, d, opened, snapshot=snapshot, camera=cam.name,
+                           suggest=suggest)
+        if d["guest"] is not None and direction == "entry" and d["allowed"]:
+            db.guest_use(d["guest"]["id"])
+        cam.last_plate_event_ts = time.time()
+        self.last_event = {"id": eid, "plate": plate, "direction": direction, "allowed": d["allowed"]}
         log.info("Событие #%s [%s]: %s %s %s шлагбаум=%s %s", eid, cam.name, plate, direction,
-                 "РАЗРЕШЁН" if allowed else "ОТКАЗ", opened, reason)
+                 "РАЗРЕШЁН" if d["allowed"] else "ОТКАЗ", opened, d["reason"])
         return eid
+
+    def vehicle_event(self, cam) -> None:
+        """Камера (AcuSense) сообщила о проезде машины. Ждём 4 с: если номер за это время распознан -
+        проезд уже записан. Иначе пишем проезд без номера с фото и подсказкой из белого списка."""
+        t0 = time.time()
+        frame = cam.latest_frame()
+        time.sleep(4)
+        if time.time() - max(c.last_plate_event_ts for c in self.cameras) < 12:
+            return  # номер распознан - событие уже есть
+        texts = [r["text"] for r in list(self.readings) if r.get("cam") == cam.name and t0 - r.get("ts", 0) < 12]
+        s = db.suggest_plate(texts, max_distance=3)
+        suggest = s[0] if s else ""
+        direction = cam.direction if cam.direction in ("entry", "exit") else (
+            db.guess_direction(suggest) if suggest else "entry")
+        snapshot = ""
+        frame = cam.latest_frame() if frame is None else frame
+        if frame is not None:
+            h, w = frame.shape[:2]
+            snapshot = save_snapshot("vehicle", (frame, parse_roi(cam.cfg["roi"], w, h)), box_is_zone=True)
+        reason = "номер не распознан — проверьте фото" + (f"; похоже на {suggest} ({s[1]})" if s else "")
+        eid = db.add_event("", 0, direction, None, False, snapshot=snapshot, source="vehicle", camera=cam.name,
+                           raw_plate=texts[0] if texts else "", suggest=suggest, reason=reason)
+        log.info("Событие #%s [%s]: машина без номера, подсказка=%s", eid, cam.name, suggest or "-")
 
 
 class Camera:
@@ -122,6 +154,9 @@ class Camera:
         self.last_reconnect_ts = 0.0
         self.rebooting_until = 0.0
         self.reconnects = 0
+        self.last_plate_event_ts = 0.0
+        self.events_ok_ts = 0.0  # когда последний раз пришло что-то по каналу событий камеры
+        self.vehicle_events = 0
 
     @property
     def name(self) -> str:
@@ -270,7 +305,7 @@ class Camera:
             why = "" if valid else ("формат" if not fmt_ok else ("короткий" if len(text) < 5 else "низкая уверенность"))
             self.hub.readings.appendleft({"t": datetime.now().strftime("%H:%M:%S"), "cam": self.name,
                                           "text": text, "conf": round(conf, 2), "w": x2 - x1,
-                                          "valid": valid, "why": why})
+                                          "valid": valid, "why": why, "ts": now})
             if valid:
                 self._add_reading(text, conf, now, frame, (x1, y1, x2, y2))
 
@@ -313,22 +348,82 @@ class Camera:
         self.hub.register(self, plate, conf, snap)
 
 
-def save_snapshot(plate, snap) -> str:
+def save_snapshot(plate, snap, box_is_zone: bool = False) -> str:
+    """Сохраняет полный кадр с рамкой и вырезку (номер или, для проезда без номера, зону поиска)."""
     frame, (x1, y1, x2, y2) = snap
     day = datetime.now().strftime("%Y-%m-%d")
     folder = config.SNAP_DIR / day
     folder.mkdir(parents=True, exist_ok=True)
-    name = f"{datetime.now().strftime('%H%M%S')}_{plate}"
+    name = f"{datetime.now().strftime('%H%M%S')}_{plate or 'car'}"
     img = frame.copy()
-    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 220, 0), 3)
+    cv2.rectangle(img, (x1, y1), (x2, y2), (255, 200, 0) if box_is_zone else (0, 220, 0), 3)
     img = cv2.resize(img, (1280, int(1280 * img.shape[0] / img.shape[1])))
     cv2.imwrite(str(folder / f"{name}.jpg"), img, [cv2.IMWRITE_JPEG_QUALITY, 80])
-    pad = max(6, (x2 - x1) // 8)
+    pad = 0 if box_is_zone else max(6, (x2 - x1) // 8)
     h, w = frame.shape[:2]
     crop = frame[max(0, y1 - pad):min(h, y2 + pad), max(0, x1 - pad):min(w, x2 + pad)]
     if crop.size:
-        cv2.imwrite(str(folder / f"{name}_plate.jpg"), crop)
+        if crop.shape[1] > 480:
+            crop = cv2.resize(crop, (480, int(480 * crop.shape[0] / crop.shape[1])))
+        cv2.imwrite(str(folder / f"{name}_plate.jpg"), crop, [cv2.IMWRITE_JPEG_QUALITY, 85])
     return f"{day}/{name}"
+
+
+# ---------- события камеры Hikvision (AcuSense) ----------
+
+VEHICLE_EVENTS = ("linedetection", "fielddetection", "regionentrance", "regionexiting", "vmd")
+
+
+def _parse_alert(xml: str) -> dict:
+    def tag(t):
+        m = re.search(rf"<{t}>([^<]*)</{t}>", xml)
+        return m.group(1).strip() if m else ""
+    targets = re.findall(r"<(?:targetType|detectionTarget)>([^<]*)<", xml)
+    return {"type": tag("eventType").lower(), "state": tag("eventState").lower(),
+            "targets": [t.lower() for t in targets]}
+
+
+def listen_events(cam) -> None:
+    """Постоянное подключение к /ISAPI/Event/notification/alertStream камеры.
+    Проезд = событие пересечения линии / вторжения в зону с целью «vehicle»."""
+    u = urlparse(cam.cfg["url"])
+    host = f"{u.hostname}:{cam.cfg.get('http_port') or 80}"
+    last_trigger = 0.0
+    while True:
+        try:
+            mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+            mgr.add_password(None, f"http://{host}", unquote(u.username or ""), unquote(u.password or ""))
+            opener = urllib.request.build_opener(urllib.request.HTTPDigestAuthHandler(mgr))
+            resp = opener.open(f"http://{host}/ISAPI/Event/notification/alertStream", timeout=60)
+            log.info("[%s] канал событий камеры подключён", cam.name)
+            buf = ""
+            while True:
+                line = resp.readline()
+                if not line:
+                    break
+                cam.events_ok_ts = time.time()
+                buf += line.decode("utf-8", "ignore")
+                if "</EventNotificationAlert>" not in buf:
+                    if len(buf) > 200_000:
+                        buf = ""
+                    continue
+                xml, buf = buf.split("</EventNotificationAlert>", 1)
+                ev = _parse_alert(xml)
+                if ev["type"] not in VEHICLE_EVENTS or ev["state"] != "active":
+                    continue
+                if ev["type"] == "vmd" and "vehicle" not in ev["targets"]:
+                    continue  # обычное движение (люди, тени) без классификации - не проезд
+                if ev["targets"] and "vehicle" not in ev["targets"]:
+                    continue  # AcuSense: цель - человек
+                if time.time() - last_trigger < 8:
+                    continue  # одна машина даёт несколько событий подряд
+                last_trigger = time.time()
+                cam.vehicle_events += 1
+                log.info("[%s] камера сообщила о проезде машины (%s)", cam.name, ev["type"])
+                threading.Thread(target=cam.hub.vehicle_event, args=(cam,), daemon=True).start()
+        except Exception as e:  # noqa: BLE001
+            log.warning("[%s] канал событий: %s, повтор через 15 с", cam.name, e)
+        time.sleep(15)
 
 
 hub = Hub()

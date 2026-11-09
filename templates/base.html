@@ -5,43 +5,64 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{{ TITLES.get(page, "") }}{% endblock %} · {{ SITE_NAME }}</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚧</text></svg>">
-<link rel="stylesheet" href="/static/app.css?v=4">
+<link rel="stylesheet" href="/static/app.css?v=5">
 </head>
 <body>
+{% set user = request.state.user %}
+{% set admin = user and user.role == 'admin' %}
 <header class="top">
   <div class="in">
     <a class="brand" href="/">🚧 {{ SITE_NAME }}</a>
     <nav class="menu">
       <a href="/" class="{{ 'on' if page=='index' }}">Монитор</a>
       <a href="/journal" class="{{ 'on' if page=='journal' }}">Журнал</a>
+      <a href="/guests" class="{{ 'on' if page=='guests' }}">Гости</a>
       <a href="/reports" class="{{ 'on' if page=='reports' }}">Отчёты</a>
+      {% if admin %}
       <span class="sep"></span>
       <a href="/whitelist" class="{{ 'on' if page=='whitelist' }}">Белый список</a>
       <a href="/categories" class="{{ 'on' if page=='categories' }}">Категории</a>
       <a href="/settings" class="{{ 'on' if page=='settings' }}">Настройки</a>
+      <a href="/users" class="{{ 'on' if page=='users' }}">Пользователи</a>
+      <a href="/audit" class="{{ 'on' if page=='audit' }}">Аудит</a>
+      {% endif %}
     </nav>
     <div class="status">
       <span id="cam-status" title="Состояние камер"></span>
       <span id="clock"></span>
+      {% if user %}
+      <span class="user">
+        <a href="/account" title="Сменить пароль">👤 {{ user.full_name or user.username }}</a>
+        <span class="role">{{ ROLES[user.role] }}</span>
+        <a href="/logout" title="Выйти">Выход</a>
+      </span>
+      {% endif %}
     </div>
   </div>
 </header>
+<div id="alerts"></div>
 <main>
   {% set msg = request.query_params.get("msg") %}
   {% if msg and MESSAGES.get(msg) %}<div class="flash" id="flash">✓ {{ MESSAGES[msg] }}</div>{% endif %}
   {% block body %}{% endblock %}
 </main>
 <script>
+const IS_ADMIN = {{ 'true' if admin else 'false' }};
 (function () {
   const clock = document.getElementById("clock");
   const tick = () => clock.textContent = new Date().toLocaleTimeString("ru-RU");
   tick(); setInterval(tick, 1000);
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   async function status() {
     try {
-      const s = await (await fetch("/api/cameras")).json();
+      const r = await fetch("/api/cameras");
+      if (r.status === 401) { location.href = "/login"; return; }
+      const s = await r.json();
       const ST = {ok: ["on", "работает"], frozen: ["warn", "картинка зависла"], rebooting: ["warn", "перезагружается"], offline: ["off", "нет связи"]};
-      document.getElementById("cam-status").innerHTML = s.map(c => { const [cls, t] = ST[c.state] || ST.offline;
-        return `<span title="${t}"><i class="dot ${cls}"></i>${c.name.replace(/[<>&]/g, "")}</span>`; }).join(" &nbsp; ");
+      document.getElementById("cam-status").innerHTML = s.cameras.map(c => { const [cls, t] = ST[c.state] || ST.offline;
+        return `<span title="${t}"><i class="dot ${cls}"></i>${esc(c.name)}</span>`; }).join(" &nbsp; ");
+      document.getElementById("alerts").innerHTML = s.alerts.map(a =>
+        `<div class="alert-bar"><b>⚠ ${esc(a.text)}</b> <span class="small">с ${esc(a.since.slice(11, 16))}</span></div>`).join("");
     } catch (e) {}
   }
   status(); setInterval(status, 10000);

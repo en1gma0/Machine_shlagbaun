@@ -25,6 +25,7 @@
   <div class="stat"><div class="v">{{ totals.unknown }}</div><div class="l">Неизвестных проездов</div></div>
   <div class="stat red"><div class="v">{{ totals.denied }}</div><div class="l">Отказов</div></div>
   <div class="stat"><div class="v">{{ totals.opened }}</div><div class="l">Открытий шлагбаума</div></div>
+  <div class="stat orange"><div class="v">{{ totals.flagged }}</div><div class="l">Подозрительных</div></div>
 </div>
 
 <div class="grid">
@@ -67,6 +68,18 @@
     </tbody></table></div>
   </div>
 </div>
+
+{% if flagged %}
+<div class="card flush">
+  <h2>Подозрительные проезды ({{ flagged|length }})</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Время</th><th>Номер</th><th>Направление</th><th>Категория / владелец</th><th>Что не так</th></tr></thead>
+    <tbody>
+    {% for r in flagged %}<tr><td class="nowrap"><a href="/journal?date_from={{ r.ts[:10] }}&date_to={{ r.ts[:10] }}#e{{ r.id }}">{{ r.ts }}</a></td><td class="plate">{{ r.plate }}</td><td><span class="tag dir">{{ DIR_RU[r.direction] }}</span></td><td>{{ r.category or "—" }}<div class="muted small">{{ r.owner }}</div></td><td><span class="flag">⚠ {{ FLAGS.get(r.flag, r.flag) }}</span><div class="reason">{{ r.reason }}</div></td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
 
 <div class="card flush">
   <h2>Отказы в доступе ({{ denied|length }})</h2>
