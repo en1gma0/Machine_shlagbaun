@@ -2,6 +2,9 @@
 {% block body %}
 <div class="page-head"><h1>Настройки</h1></div>
 <div class="note">
+  <b>Роль камеры («Направление»):</b> камера <b>во дворе / у шлагбаума</b> («авто») фиксирует, что машина заехала или выехала.
+  Камера <b>«снаружи, улица»</b> запоминает номер подъехавшей машины: если её потом увидит внутренняя камера, запись станет
+  «впущена», иначе «не впущена».<br>
   Как подобрать зону: обведите мышкой небольшую область, где номер машины виден у шлагбаума.
   Чем меньше зона, тем крупнее номер для распознавания. Затем смотрите «Ширину» в последних чтениях на мониторе:
   если номер уже 100 px, увеличьте «Увеличение» до 2.
@@ -24,6 +27,7 @@
       <option value="auto" {{ 'selected' if c.direction=='auto' }}>авто (по истории)</option>
       <option value="entry" {{ 'selected' if c.direction=='entry' }}>только въезд</option>
       <option value="exit" {{ 'selected' if c.direction=='exit' }}>только выезд</option>
+      <option value="outside" {{ 'selected' if c.direction=='outside' }}>снаружи, улица (подъехала)</option>
     </select></label>
     <button>Сохранить</button>
     <button type="button" class="ghost" onclick="document.getElementById('roi-{{ c.id }}').value='';draw({{ c.id }})">Весь кадр</button>

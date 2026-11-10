@@ -20,7 +20,7 @@ from .recognizer import hub
 app = FastAPI(title="Учёт проездов")
 app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(config.BASE_DIR / "templates"))
-DIR_RU = {"entry": "Въезд", "exit": "Выезд"}
+DIR_RU = {"entry": "Въезд", "exit": "Выезд", "approach": "Подъехала"}
 TITLES = {"index": "Монитор", "journal": "Журнал", "reports": "Отчёты", "whitelist": "Белый список",
           "categories": "Категории", "settings": "Настройки", "guests": "Гостевые пропуска",
           "users": "Пользователи", "audit": "Аудит", "account": "Мой пароль"}
@@ -33,6 +33,31 @@ templates.env.globals.update(DIR_RU=DIR_RU, SITE_NAME=config.SITE_NAME, DAYS_RU=
                              schedule_text=db.schedule_text, TITLES=TITLES, MESSAGES=MESSAGES,
                              ROLES=auth.ROLES, FLAGS=FLAGS, guest_status=db.guest_status)
 PUBLIC = ("/login", "/setup", "/static/")
+
+
+def event_badge(r) -> dict:
+    """Статус записи для таблиц и карточки: цвет, короткий текст, крупная надпись."""
+    noplate = r["source"] == "vehicle" and not r["verified"]
+    if r["direction"] == "approach":
+        cls, text, banner = {
+            "entered": ("ok", "впущена", "✓ Подъехала и впущена"),
+            "waiting": ("dir", "у ворот", "Машина у ворот"),
+            "not_entered": ("bad", "не впущена", "✕ Подъехала, не впущена"),
+        }[db.approach_state(r)]
+        if noplate:
+            text, banner = text + " · без номера", banner + " · номер неизвестен"
+    elif r["source"] == "vehicle":
+        word = "выехала" if r["direction"] == "exit" else "заехала"
+        cls, text, banner = (("flag", f"{word}, без номера", f"⚠ Машина {word}, номер неизвестен") if noplate
+                             else ("dir", "номер дописан", f"✓ Машина {word}, номер дописан"))
+    elif r["allowed"]:
+        cls, text, banner = "ok", "разрешён", "✓ Доступ разрешён"
+    else:
+        cls, text, banner = "bad", "отказ", "✕ Отказ"
+    return {"cls": cls, "text": text, "banner": banner}
+
+
+templates.env.globals.update(event_badge=event_badge)
 
 
 # ---------------- вход и права ----------------
@@ -291,7 +316,7 @@ def api_status():
         "models_loaded": hub.alpr is not None,
         "cameras": [_cam_state(c) for c in hub.cameras],
         "readings": [{k: v for k, v in r.items() if k != "ts"} for r in list(hub.readings)[:15]],
-        "events": [dict(r) for r in db.events(limit=15)],
+        "events": [{**dict(r), "badge": event_badge(r)} for r in db.events(limit=15)],
         "inside": len(db.inside_now()),
         "today": dict(day[0]) if day else {"entries": 0, "exits": 0, "unique_cars": 0, "unknown": 0, "denied": 0},
         "gate_mode": config.GATE_MODE,
@@ -358,7 +383,7 @@ def frame(cid: int):
 @app.post("/gate/open")
 def gate_open(request: Request, plate: str = Form(""), direction: str = Form("entry"), comment: str = Form("")):
     plate = db.normalize(plate)
-    direction = direction if direction in DIR_RU else "entry"
+    direction = direction if direction in ("entry", "exit") else "entry"
     d = db.decide(plate, direction) if plate else None
     opened = gate.open_gate()
     if d and d["guest"] is not None and direction == "entry":
@@ -369,6 +394,9 @@ def gate_open(request: Request, plate: str = Form(""), direction: str = Form("en
     eid = db.add_event(plate, 1.0, direction, d, opened, source="manual", username=uname(request),
                        comment=comment, reason=reason)
     db.ex("UPDATE events SET allowed=1 WHERE id=?", (eid,))  # пропустил человек - проезд разрешён
+    if direction == "entry":
+        # машина с улицы впущена; по номеру ищем и среди давно ждущих (до 30 минут)
+        db.link_approach(eid, plate, 1800 if plate else config.APPROACH_WINDOW_SEC)
     log_action(request, "ручное открытие шлагбаума",
                f"{DIR_RU[direction]}; номер {plate or '—'}" + (f"; {comment}" if comment else ""))
     return JSONResponse({"opened": opened, "mode": config.GATE_MODE})
@@ -627,7 +655,8 @@ def reports(request: Request, date_from: str = "", date_to: str = ""):
     date_from, date_to = _period(date_from, date_to)
     by_day = db.report_by_day(date_from, date_to)
     by_hour = {r["hour"]: r["cnt"] for r in db.report_by_hour(date_from, date_to)}
-    totals = {k: sum(r[k] or 0 for r in by_day) for k in ("entries", "exits", "unknown", "denied", "opened", "flagged")}
+    totals = {k: sum(r[k] or 0 for r in by_day) for k in ("entries", "exits", "unknown", "denied", "opened", "flagged", "noplate",
+                                                    "approaches", "not_entered")}
     return templates.TemplateResponse(request, "reports.html", {
         "page": "reports", "date_from": date_from, "date_to": date_to, "periods": periods(date_from, date_to),
         "by_day": by_day, "by_hour": [by_hour.get(h, 0) for h in range(24)],
@@ -691,7 +720,7 @@ def settings_camera(request: Request, cid: int, roi: str = Form(""), scale: floa
     cam = hub.camera(cid)
     if cam:
         scale = max(1.0, min(3.0, scale))
-        direction = direction if direction in ("auto", "entry", "exit") else "auto"
+        direction = direction if direction in ("auto", "entry", "exit", "outside") else "auto"
         cam.cfg.update(roi=roi, scale=scale, direction=direction, name=name.strip() or cam.name)
         config.set_env(f"CAMERA{cid}_ROI", roi)
         config.set_env(f"CAMERA{cid}_SCALE", scale)

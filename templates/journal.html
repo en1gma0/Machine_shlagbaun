@@ -21,13 +21,15 @@
       <option value="0" {{ 'selected' if f.allowed=='0' }}>отказ</option>
       <option value="unknown" {{ 'selected' if f.allowed=='unknown' }}>нет в списке</option>
       <option value="noplate" {{ 'selected' if f.allowed=='noplate' }}>машины без номера</option>
+      <option value="notentered" {{ 'selected' if f.allowed=='notentered' }}>подъехали, не впущены</option>
       <option value="flag" {{ 'selected' if f.allowed=='flag' }}>подозрительные</option>
       <option value="unverified" {{ 'selected' if f.allowed=='unverified' }}>не проверены</option>
       <option value="comment" {{ 'selected' if f.allowed=='comment' }}>с комментарием</option></select></label>
     <label>Направление<select name="direction">
       <option value="">все</option>
       <option value="entry" {{ 'selected' if f.direction=='entry' }}>въезд</option>
-      <option value="exit" {{ 'selected' if f.direction=='exit' }}>выезд</option></select></label>
+      <option value="exit" {{ 'selected' if f.direction=='exit' }}>выезд</option>
+      <option value="approach" {{ 'selected' if f.direction=='approach' }}>подъехала (улица)</option></select></label>
     <label>Категория<select name="category">
       <option value="">все</option>
       {% for c in categories %}<option value="{{ c.name }}" {{ 'selected' if f.category==c.name }}>{{ c.name }}</option>{% endfor %}
@@ -73,7 +75,7 @@
         </td>
         <td><span class="tag dir">{{ DIR_RU[r.direction] }}</span></td>
         <td>{{ r.category or "—" }}<div class="muted small">{{ r.owner }}</div></td>
-        <td><span class="tag {{ 'ok' if r.allowed else 'bad' }}">{{ "разрешён" if r.allowed else ("без номера" if r.source=='vehicle' else "отказ") }}</span>
+        <td>{% set b = event_badge(r) %}<span class="tag {{ b.cls }}">{{ b.text }}</span>
             {% if r.flag %}<span class="flag">⚠ {{ FLAGS.get(r.flag, r.flag) }}</span>{% endif %}
             {% if r.reason %}<div class="{{ 'reason' if not r.allowed else 'muted small' }}">{{ r.reason }}</div>{% endif %}
             {% if r.gate_opened %}<div class="muted small">шлагбаум открыт</div>{% endif %}
@@ -86,7 +88,8 @@
               <label>Комментарий<input name="comment" value="{{ r.comment }}" placeholder="например: привёз груз, пропустил старший смены"></label>
               <label>Направление<select name="direction">
                 <option value="entry" {{ 'selected' if r.direction=='entry' }}>Въезд</option>
-                <option value="exit" {{ 'selected' if r.direction=='exit' }}>Выезд</option></select></label>
+                <option value="exit" {{ 'selected' if r.direction=='exit' }}>Выезд</option>
+                <option value="approach" {{ 'selected' if r.direction=='approach' }}>Подъехала (не заехала)</option></select></label>
               <button class="sm">Сохранить</button>
             </form>
             {% if is_admin %}

@@ -6,6 +6,10 @@
   <div class="stat orange"><div class="v" id="s-inside">0</div><div class="l">Сейчас на территории</div></div>
   <div class="stat"><div class="v" id="s-unk">0</div><div class="l">Неизвестных сегодня</div></div>
   <div class="stat red"><div class="v" id="s-den">0</div><div class="l">Отказов сегодня</div></div>
+  <a class="stat orange" href="/journal?allowed=noplate" style="text-decoration:none;color:inherit" title="Открыть записи без номера">
+    <div class="v" id="s-noplate">0</div><div class="l">Без номера — допишите ›</div></a>
+  <a class="stat red" href="/journal?allowed=notentered" style="text-decoration:none;color:inherit" title="Машины, которые подъехали с улицы, но не заехали">
+    <div class="v" id="s-notin">0</div><div class="l">Подъехали, не впущены ›</div></a>
 </div>
 
 <div class="cams" style="margin-bottom:16px">
@@ -69,9 +73,9 @@
 </div>
 
 <script>
-const DIR = {entry: "Въезд", exit: "Выезд"};
+const DIR = {entry: "Въезд", exit: "Выезд", approach: "Подъехала"};
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const status = e => `<span class="tag ${e.allowed ? "ok" : "bad"}">${e.allowed ? "разрешён" : (e.source === "vehicle" ? "без номера" : "отказ")}</span>`
+const status = e => `<span class="tag ${e.badge.cls}">${esc(e.badge.text)}</span>`
   + (e.flag ? ` <span class="flag">⚠ повторный въезд</span>` : "")
   + (e.reason && (!e.allowed || e.flag) ? `<div class="reason">${esc(e.reason)}</div>` : "")
   + (e.gate_opened ? `<div class="muted small">шлагбаум открыт</div>` : "");
@@ -87,12 +91,13 @@ function renderLast(e) {
   document.getElementById("last").innerHTML = `
     ${e.snapshot ? `<a href="/snap/${e.snapshot}.jpg" target="_blank"><img src="/snap/${e.snapshot}_plate.jpg" alt=""></a>` : ""}
     <div class="meta"><span class="plate-big">${esc(e.plate) || "—"}</span><span class="tag dir">${DIR[e.direction]}</span></div>
-    <div class="banner ${ok ? "ok" : "bad"}">${ok ? "✓ Доступ разрешён" : (e.source === "vehicle" ? "? Машина без номера" : "✕ Отказ")}${!ok && e.reason ? `<div class="small" style="font-weight:400">${esc(e.reason)}</div>` : ""}</div>
+    <div class="banner ${e.badge.cls}">${esc(e.badge.banner)}${!ok && e.reason ? `<div class="small" style="font-weight:400">${esc(e.reason)}</div>` : ""}</div>
     ${e.flag ? `<div class="flag">⚠ Повторный въезд без выезда</div>` : ""}
     ${e.suggest && !e.verified ? `<div>Похоже на <b class="plate">${esc(e.suggest)}</b> — <a href="/journal#e${e.id}">проверить в журнале</a></div>` : ""}
     <div class="muted">${esc(e.ts)} · ${esc(e.camera || (e.source === "manual" ? "вручную: " + e.username : ""))}</div>
     ${e.owner || e.category ? `<div>${esc(e.owner)} ${e.category ? `<span class="muted">· ${esc(e.category)}</span>` : ""}</div>` : ""}
     ${e.comment ? `<div class="small">💬 ${esc(e.comment)}</div>` : ""}
+    ${e.source === "vehicle" && !e.verified ? `<a class="btn sm" href="/journal?allowed=noplate#e${e.id}">✎ Дописать номер</a>` : ""}
     <div>${addLinks(e)}</div>`;
 }
 
@@ -113,7 +118,7 @@ async function tick() {
         : ' · <span class="reason">события камеры: нет связи</span>';
     }
     for (const [id, v] of [["s-in", s.today.entries], ["s-out", s.today.exits], ["s-unk", s.today.unknown],
-                           ["s-den", s.today.denied], ["s-inside", s.inside]])
+                           ["s-den", s.today.denied], ["s-inside", s.inside], ["s-noplate", s.today.noplate], ["s-notin", s.today.not_entered]])
       document.getElementById(id).textContent = v || 0;
 
     document.getElementById("readings").innerHTML = s.readings.slice(0, 10).map(r =>

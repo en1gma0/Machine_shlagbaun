@@ -26,6 +26,8 @@
   <div class="stat red"><div class="v">{{ totals.denied }}</div><div class="l">Отказов</div></div>
   <div class="stat"><div class="v">{{ totals.opened }}</div><div class="l">Открытий шлагбаума</div></div>
   <div class="stat orange"><div class="v">{{ totals.flagged }}</div><div class="l">Подозрительных</div></div>
+  <a class="stat orange" href="/journal?date_from={{ date_from }}&date_to={{ date_to }}&allowed=noplate" style="text-decoration:none;color:inherit"><div class="v">{{ totals.noplate }}</div><div class="l">Без номера (не дописаны) ›</div></a>
+  <a class="stat red" href="/journal?date_from={{ date_from }}&date_to={{ date_to }}&allowed=notentered" style="text-decoration:none;color:inherit"><div class="v">{{ totals.not_entered }}</div><div class="l">Подъехали, не впущены ›</div></a>
 </div>
 
 <div class="grid">

@@ -112,6 +112,7 @@ _add_column("events", "suggest", "TEXT DEFAULT ''")     # вероятный н�
 _add_column("events", "flag", "TEXT DEFAULT ''")        # antipassback / ...
 _add_column("events", "username", "TEXT DEFAULT ''")    # кто открыл вручную
 _add_column("events", "guest_id", "INTEGER")
+_add_column("events", "linked", "INTEGER")           # для «подъехала»: id события въезда (впущена)
 
 if not _conn.execute("SELECT 1 FROM categories LIMIT 1").fetchone():
     _conn.executemany(
@@ -495,6 +496,40 @@ def add_event(plate, confidence, direction, decision: dict | None, gate_opened, 
     )
 
 
+def recent_inner_event(plate: str, seconds: float):
+    """Недавний въезд/выезд этой машины (с допуском ошибок чтения) - чтобы уличная камера
+    не записывала «подъехала» для машины, которая только что заехала или выезжает."""
+    since = (datetime.now() - timedelta(seconds=seconds)).strftime(TS_FMT)
+    for e in q("SELECT * FROM events WHERE ts >= ? AND direction IN ('entry','exit') AND plate != '' ORDER BY id DESC",
+               (since,)):
+        if levenshtein(plate, e["plate"]) <= 2:
+            return e
+    return None
+
+
+def link_approach(entry_id: int, plate: str, seconds: float):
+    """Машина заехала: пометить событие «подъехала» с улицы как «впущена».
+    Ищем по похожему номеру, иначе берём последнее «подъехала» без номера (или любое, если номера въезда нет)."""
+    since = (datetime.now() - timedelta(seconds=seconds)).strftime(TS_FMT)
+    rows = q("SELECT * FROM events WHERE ts >= ? AND direction='approach' AND linked IS NULL ORDER BY id DESC", (since,))
+    pick = None
+    if plate:
+        pick = next((r for r in rows if r["plate"] and levenshtein(plate, r["plate"]) <= 2), None)             or next((r for r in rows if not r["plate"]), None)
+    elif rows:
+        pick = rows[0]
+    if pick:
+        ex("UPDATE events SET linked=? WHERE id=?", (entry_id, pick["id"]))
+    return pick
+
+
+def approach_state(e) -> str:
+    """Для события «подъехала»: entered (впущена) / waiting (ещё у ворот) / not_entered (не впущена)."""
+    if e["linked"]:
+        return "entered"
+    age = (datetime.now() - datetime.strptime(e["ts"], TS_FMT)).total_seconds()
+    return "waiting" if age < config.APPROACH_WINDOW_SEC else "not_entered"
+
+
 def event_get(eid: int):
     return q1("SELECT * FROM events WHERE id=?", (eid,))
 
@@ -510,7 +545,7 @@ def event_comment(eid: int, comment: str) -> None:
 
 
 def event_set_direction(eid: int, direction: str) -> None:
-    if direction in ("entry", "exit"):
+    if direction in ("entry", "exit", "approach"):
         ex("UPDATE events SET direction=? WHERE id=?", (direction, eid))
 
 
@@ -553,7 +588,7 @@ def dataset_stats():
 def last_event_for(plate: str):
     if not plate:
         return None
-    return q1("SELECT * FROM events WHERE plate=? ORDER BY id DESC LIMIT 1", (plate,))
+    return q1("SELECT * FROM events WHERE plate=? AND direction != 'approach' ORDER BY id DESC LIMIT 1", (plate,))
 
 
 def guess_direction(plate: str) -> str:
@@ -585,7 +620,9 @@ def _events_where(date_from="", date_to="", plate="", allowed="", direction="", 
         sql += " AND flag != ''"
     elif allowed == "comment":
         sql += " AND comment != ''"
-    if direction in ("entry", "exit"):
+    elif allowed == "notentered":
+        sql += " AND direction = 'approach' AND linked IS NULL"
+    if direction in ("entry", "exit", "approach"):
         sql += " AND direction = ?"; args.append(direction)
     if category == "none":
         sql += " AND category = ''"
@@ -609,7 +646,8 @@ def inside_now():
     since = (datetime.now() - timedelta(hours=config.AUTO_RESET_HOURS)).strftime(TS_FMT)
     return q(
         """SELECT e.* FROM events e
-           JOIN (SELECT plate, MAX(id) mid FROM events WHERE plate != '' GROUP BY plate) t
+           JOIN (SELECT plate, MAX(id) mid FROM events WHERE plate != '' AND direction != 'approach'
+                 GROUP BY plate) t
              ON e.id = t.mid
            WHERE e.direction='entry' AND e.ts >= ? ORDER BY e.ts DESC""",
         (since,),
@@ -619,7 +657,7 @@ def inside_now():
 def visits(date_from: str, date_to: str):
     """Пары въезд -> выезд с длительностью пребывания."""
     rows = q(
-        "SELECT * FROM events WHERE plate != '' AND ts BETWEEN ? AND ? ORDER BY plate, ts",
+        "SELECT * FROM events WHERE plate != '' AND direction != 'approach' AND ts BETWEEN ? AND ? ORDER BY plate, ts",
         (date_from + " 00:00:00", date_to + " 23:59:59"),
     )
     result, open_entry = [], {}
@@ -658,10 +696,13 @@ def report_by_day(date_from: str, date_to: str):
                   SUM(direction='entry') entries,
                   SUM(direction='exit') exits,
                   COUNT(DISTINCT NULLIF(plate,'')) unique_cars,
-                  SUM(matched_plate='') unknown,
-                  SUM(allowed=0) denied,
+                  SUM(matched_plate='' AND source!='vehicle' AND direction!='approach') unknown,
+                  SUM(allowed=0 AND source!='vehicle' AND direction!='approach') denied,
                   SUM(gate_opened) opened,
-                  SUM(flag!='') flagged
+                  SUM(flag!='') flagged,
+                  SUM(source='vehicle' AND verified=0) noplate,
+                  SUM(direction='approach') approaches,
+                  SUM(direction='approach' AND linked IS NULL) not_entered
            FROM events WHERE ts BETWEEN ? AND ?
            GROUP BY day ORDER BY day DESC""",
         _range(date_from, date_to),
@@ -679,7 +720,8 @@ def report_by_category(date_from: str, date_to: str):
 
 
 def report_denied(date_from: str, date_to: str, limit=200):
-    return q("""SELECT * FROM events WHERE allowed=0 AND ts BETWEEN ? AND ? ORDER BY id DESC LIMIT ?""",
+    return q("""SELECT * FROM events WHERE allowed=0 AND source!='vehicle' AND direction!='approach'
+                AND ts BETWEEN ? AND ? ORDER BY id DESC LIMIT ?""",
              (*_range(date_from, date_to), limit))
 
 

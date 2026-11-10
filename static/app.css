@@ -143,6 +143,9 @@ form.inline { display: inline; }
 .last img { width: 100%; max-height: 120px; object-fit: contain; background: #000; border-radius: 6px; }
 .last .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .banner { padding: 10px 12px; border-radius: 8px; font-weight: 700; font-size: 15px; }
+.banner.dir { background: var(--accent-weak); color: var(--accent-text); }
+.banner.flag { display: block; border-radius: 8px; padding: 10px 12px; font-size: 15px; }
+.tag.flag { background: var(--warnbg); color: var(--warn); }
 
 /* ===== Диаграмма по часам ===== */
 .bars { display: flex; align-items: flex-end; gap: 3px; height: 150px; }

@@ -52,6 +52,8 @@ def set_env(key: str, value) -> None:
 # CAMERA1_URL, CAMERA1_NAME, CAMERA1_DIRECTION, CAMERA1_ROI, CAMERA1_SCALE; CAMERA2_... и т.д.
 # DIRECTION: entry - камера на въезде, exit - на выезде,
 #            auto  - направление по истории (машина внутри -> выезд, иначе въезд)
+#            outside - камера снаружи (улица): машина «подъехала»; если её потом увидит внутренняя
+#                      камера - «впущена», иначе «не впущена». Номер запоминается в любом случае
 # ROI: зона поиска "x1,y1,x2,y2" в долях кадра; SCALE: увеличение зоны перед распознаванием (1-3)
 CAMERAS: list[dict] = []
 for _i in range(1, 10):
@@ -85,6 +87,21 @@ PLATE_REGEX = _get("PLATE_REGEX", "")  # пусто = любой формат
 DETECTOR_MODEL = _get("DETECTOR_MODEL", "yolo-v9-t-640-license-plate-end2end")
 OCR_MODEL = _get("OCR_MODEL", "cct-s-v2-global-model")
 WHITELIST_MAX_DISTANCE = int(_get("WHITELIST_MAX_DISTANCE", "0"))  # 1 = простить одну ошибку OCR
+# Большая зона режется на куски TILE_SIZE px в полном разрешении (мелкие номера не теряются, но нагрузка выше)
+TILING = _bool("TILING", True)
+TILE_SIZE = int(_get("TILE_SIZE", "640"))
+TILE_REFRESH_SEC = float(_get("TILE_REFRESH_SEC", "15"))  # неподвижный кусок перепроверяется раз в столько секунд
+ORT_THREADS = int(_get("ORT_THREADS", "2"))  # потоков процессора на одно распознавание
+TILE_DIFF = float(_get("TILE_DIFF", "2.5"))  # насколько должен измениться кусок кадра, чтобы распознавать заново
+# «Машина без номера»: номер найден в зоне, но не прочитан
+UNKNOWN_EVENTS = _bool("UNKNOWN_EVENTS", True)
+UNKNOWN_AFTER_SEC = float(_get("UNKNOWN_AFTER_SEC", "3"))  # сколько секунд номер должен быть виден
+UNKNOWN_MIN_HITS = int(_get("UNKNOWN_MIN_HITS", "3"))  # в скольких кадрах найден
+UNKNOWN_GONE_SEC = float(_get("UNKNOWN_GONE_SEC", "30"))  # номер пропал на столько - перестаём следить
+UNKNOWN_REMEMBER_SEC = float(_get("UNKNOWN_REMEMBER_SEC", "60"))  # уже записанную машину помним столько после ухода
+UNKNOWN_MIN_WIDTH = int(_get("UNKNOWN_MIN_WIDTH", "26"))  # номера уже этого (px) не считаются: слишком далеко
+# Камера «снаружи» записала «подъехала»; если за это время машина не появилась внутри - «не впущена»
+APPROACH_WINDOW_SEC = float(_get("APPROACH_WINDOW_SEC", "180"))
 
 # --- Шлагбаум ---
 # none      - только журнал
