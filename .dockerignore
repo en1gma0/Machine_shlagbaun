@@ -1,0 +1,19 @@
+# Не копировать в образ: настройки с паролями, данные, окружение Windows, git
+.env
+.env.*
+data/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.claude/
+.vscode/
+.idea/
+*.bat
+nssm.exe
+*.log
+*.db
+*.zip
+*.xlsx

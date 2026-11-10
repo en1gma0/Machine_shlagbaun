@@ -90,7 +90,8 @@ def backup_now(user: str = "система") -> str:
     try:
         db.backup_to(str(config.BACKUP_DIR / name))
         if config.ENV_PATH.exists():
-            shutil.copy2(config.ENV_PATH, config.BACKUP_DIR / "env_latest.txt")
+            # copyfile, а не copy2: в Docker на папке Windows нельзя менять дату файла
+            shutil.copyfile(config.ENV_PATH, config.BACKUP_DIR / "env_latest.txt")
         for old in sorted(config.BACKUP_DIR.glob("gate_*.db"), reverse=True)[max(1, config.BACKUP_KEEP):]:
             old.unlink(missing_ok=True)
         state.update(last_backup=db.now(), last_backup_error="")

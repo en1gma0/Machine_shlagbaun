@@ -1,7 +1,13 @@
-fast-alpr[onnx]
-opencv-python
-fastapi
-uvicorn[standard]
-openpyxl
-python-multipart
-jinja2
+# Проверенные версии. OpenCV без графики (headless) - окна не нужны, работает и в Docker.
+fast-alpr[onnx]==0.4.0
+fast-plate-ocr==1.1.0
+open-image-models==0.6.0
+onnxruntime==1.31.1
+opencv-python-headless==5.0.0.93
+numpy==2.4.6
+fastapi==0.162.2
+starlette==1.10.0
+uvicorn[standard]==0.54.0
+openpyxl==3.1.5
+python-multipart==0.0.33
+jinja2==3.1.6

@@ -1,4 +1,5 @@
 """SQLite: пользователи, аудит, категории, белый список, гостевые пропуска, журнал событий."""
+import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta
@@ -8,7 +9,10 @@ from . import config
 _lock = threading.RLock()
 _conn = sqlite3.connect(config.DB_PATH, check_same_thread=False)
 _conn.row_factory = sqlite3.Row
-_conn.execute("PRAGMA journal_mode=WAL")
+# WAL быстрее, но не работает на папках, подключённых в Docker Desktop с Windows (нет общей памяти).
+# В контейнере задаётся DB_JOURNAL=DELETE.
+_conn.execute(f"PRAGMA journal_mode={os.environ.get('DB_JOURNAL', 'WAL')}")
+_conn.execute("PRAGMA busy_timeout=5000")
 
 _conn.executescript(
     """

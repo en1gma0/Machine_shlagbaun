@@ -53,11 +53,12 @@ class Hub:
         threading.Thread(target=self._watchdog, daemon=True, name="watchdog").start()
 
     def _watchdog(self) -> None:
-        """Если от камеры долго нет кадров (поток завис) - переподключаемся сами."""
+        """Поток открыт, но кадры не идут (завис) - переподключаемся сами.
+        Если камера просто недоступна, поток сам повторяет попытки - лишние подключения не плодим."""
         while True:
             time.sleep(5)
             for cam in self.cameras:
-                if cam.rebooting_until > time.time():
+                if cam.rebooting_until > time.time() or not cam.connected:
                     continue
                 stale = time.time() - (cam.last_frame_ts or cam.started_ts)
                 if stale > FREEZE_SEC and time.time() - cam.last_reconnect_ts > FREEZE_SEC:

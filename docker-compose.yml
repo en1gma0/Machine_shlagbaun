@@ -1,0 +1,26 @@
+# Запуск:  docker compose up -d --build     Остановка:  docker compose down
+# Сайт:    http://localhost:8000            Логи:       docker compose logs -f
+services:
+  gate:
+    build: .
+    image: machine-shlagbaun:latest
+    container_name: shlagbaum
+    # автозапуск вместе с Docker и перезапуск при сбое
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # часовой пояс для времени в журнале
+      TZ: Asia/Tashkent
+      # настройки берутся из этого файла (он же меняется со страницы «Настройки»)
+      GATE_ENV_FILE: /app/config/gate.env
+    volumes:
+      # база, фото проездов, резервные копии, логи - остаются в папке data рядом с проектом
+      - ./data:/app/data
+      # файл настроек с адресами и паролями камер
+      - ./.env:/app/config/gate.env
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

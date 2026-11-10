@@ -2,19 +2,39 @@
 
 Камеры (RTSP) → распознавание номера ([fast-alpr](https://github.com/ankandrew/fast-alpr)) → белый список, гостевые пропуска и расписание категорий → открытие шлагбаума → журнал, отчёты и аудит.
 
-## Установка
+## Запуск в Docker (рекомендуется)
 
-1. Python 3.11 (Windows).
-2. Скопировать `.env.example` в `.env` и вписать адреса камер (RTSP), логины и пароли.
+Нужен [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows) или Docker Engine (Linux).
+
+1. Скопировать `.env.example` в `.env` и вписать адреса камер (RTSP), логины и пароли.
+2. Запустить `docker-start.bat` или командой:
+   ```bash
+   docker compose up -d --build
+   ```
+3. Открыть http://localhost:8000. При первом входе система предложит **создать администратора**.
+
+| Действие | Файл | Команда |
+|---|---|---|
+| Запустить / обновить после изменений кода | `docker-start.bat` | `docker compose up -d --build` |
+| Остановить | `docker-stop.bat` | `docker compose down` |
+| Смотреть лог | `docker-logs.bat` | `docker compose logs -f` |
+
+- Модели распознавания входят в образ: интернет нужен только при сборке.
+- База, фото, резервные копии и логи хранятся в папке `data/` рядом с проектом, настройки в `.env`. Пересборка и удаление контейнера их не затрагивают.
+- Контейнер перезапускается при сбое и стартует вместе с Docker (`restart: unless-stopped`). Чтобы система поднималась после перезагрузки компьютера, в Docker Desktop включите **Settings → General → Start Docker Desktop when you sign in**.
+- Часовой пояс для журнала задаётся в `docker-compose.yml` (`TZ: Asia/Tashkent`).
+- Не запускайте одновременно контейнер и службу Windows / `start.bat`: они займут один и тот же порт 8000.
+
+## Запуск без Docker (Windows)
+
+1. Python 3.11.
+2. Скопировать `.env.example` в `.env` и вписать адреса камер.
 3. Запустить `start.bat`: при первом запуске он сам создаст `.venv` и установит зависимости. Модели распознавания скачиваются автоматически (~13 МБ).
-4. Открыть http://localhost:8000. При первом входе система предложит **создать администратора**.
+4. Открыть http://localhost:8000.
 
 Папку проекта держите по короткому пути (например, `D:\gate`): при очень длинном пути Windows не загружает библиотеку распознавания.
 
-## Запуск
-
-- **Вручную:** `start.bat`, затем открыть http://localhost:8000
-- **Как служба Windows** (автозапуск, перезапуск при сбое): правой кнопкой по `install_service.bat` → «Запуск от имени администратора». Удаление: `uninstall_service.bat`.
+Как служба Windows (автозапуск, перезапуск при сбое): правой кнопкой по `install_service.bat` → «Запуск от имени администратора». Удаление: `uninstall_service.bat`.
 
 ## Пользователи и роли
 
@@ -88,8 +108,10 @@ static/app.css  оформление (светлая и тёмная тема, �
 data/           база gate.db, фото snaps/, копии backups/, логи gate.log и service.log
 .env            настройки с паролями камер (не передавать посторонним)
 .env.example    образец настроек без паролей
-start.bat               ручной запуск
-install_service.bat     установка службы Windows (от имени администратора)
+Dockerfile, docker-compose.yml, .dockerignore   контейнер
+docker-start.bat / docker-stop.bat / docker-logs.bat   управление контейнером
+start.bat               ручной запуск без Docker
+install_service.bat     установка службы Windows без Docker (от имени администратора)
 uninstall_service.bat   удаление службы
 ```
 
