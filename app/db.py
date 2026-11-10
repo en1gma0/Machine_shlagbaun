@@ -112,6 +112,7 @@ _add_column("events", "suggest", "TEXT DEFAULT ''")     # вероятный н�
 _add_column("events", "flag", "TEXT DEFAULT ''")        # antipassback / ...
 _add_column("events", "username", "TEXT DEFAULT ''")    # кто открыл вручную
 _add_column("events", "guest_id", "INTEGER")
+_add_column("events", "seen_out", "INTEGER DEFAULT 0")  # после этого проезда машину увидела камера с улицы
 _add_column("events", "linked", "INTEGER")           # для «подъехала»: id события въезда (впущена)
 
 if not _conn.execute("SELECT 1 FROM categories LIMIT 1").fetchone():
@@ -507,19 +508,60 @@ def recent_inner_event(plate: str, seconds: float):
     return None
 
 
-def link_approach(entry_id: int, plate: str, seconds: float):
-    """Машина заехала: пометить событие «подъехала» с улицы как «впущена».
-    Ищем по похожему номеру, иначе берём последнее «подъехала» без номера (или любое, если номера въезда нет)."""
+def find_approach(plate: str, seconds: float):
+    """Недавнее «подъехала» с улицы, ещё не связанное с въездом: по похожему номеру,
+    иначе последнее без номера (только за последнюю минуту)."""
     since = (datetime.now() - timedelta(seconds=seconds)).strftime(TS_FMT)
+    short = (datetime.now() - timedelta(seconds=min(seconds, 60))).strftime(TS_FMT)
     rows = q("SELECT * FROM events WHERE ts >= ? AND direction='approach' AND linked IS NULL ORDER BY id DESC", (since,))
-    pick = None
     if plate:
-        pick = next((r for r in rows if r["plate"] and levenshtein(plate, r["plate"]) <= 2), None)             or next((r for r in rows if not r["plate"]), None)
-    elif rows:
-        pick = rows[0]
+        return next((r for r in rows if r["plate"] and levenshtein(plate, r["plate"]) <= 2), None) \
+            or next((r for r in rows if not r["plate"] and r["ts"] >= short), None)
+    return next((r for r in rows if r["ts"] >= short), None)
+
+
+def link_approach(entry_id: int, plate: str, seconds: float):
+    """Машина заехала: пометить событие «подъехала» с улицы как «впущена»."""
+    pick = find_approach(plate, seconds)
     if pick:
         ex("UPDATE events SET linked=? WHERE id=?", (entry_id, pick["id"]))
     return pick
+
+
+def recent_inner_unseen(seconds: float, noplate_only: bool = False):
+    """Последний проезд у внутренней камеры, после которого машину ещё не видела камера с улицы
+    и которому не предшествовало «подъехала» (то есть это не въезд с улицы)."""
+    since = (datetime.now() - timedelta(seconds=seconds)).strftime(TS_FMT)
+    return q1(f"""SELECT * FROM events e WHERE ts >= ? AND direction IN ('entry','exit') AND source != 'manual'
+                  AND seen_out = 0 {"AND plate = ''" if noplate_only else ""}
+                  AND NOT EXISTS (SELECT 1 FROM events a WHERE a.linked = e.id)
+                  ORDER BY id DESC LIMIT 1""", (since,))
+
+
+def mark_left(eid: int) -> bool:
+    """Машину после проезда у внутренней камеры увидела камера с улицы: значит, она выезжала.
+    Если проезд был записан как въезд (и это не въезд с улицы) - исправляем на выезд."""
+    ex("UPDATE events SET seen_out=1 WHERE id=?", (eid,))
+    e = event_get(eid)
+    if not e or e["direction"] != "entry" or q1("SELECT 1 FROM events WHERE linked=?", (eid,)):
+        return False
+    note = "выезд: после этого машину увидела камера с улицы"
+    reason = (e["reason"] or "").replace("машина заехала", "машина выехала")
+    ex("UPDATE events SET direction='exit', flag='', reason=? WHERE id=?",
+       (f"{reason}; {note}" if reason else note, eid))
+    return True
+
+
+def drop_recent_noplate(camera: str, plate: str, seconds: float):
+    """Номер всё-таки прочитан: убрать запись «без номера» этой же машины с этой камеры."""
+    since = (datetime.now() - timedelta(seconds=seconds)).strftime(TS_FMT)
+    for e in q("""SELECT * FROM events WHERE ts >= ? AND camera=? AND source='vehicle' AND plate=''
+                  AND verified=0 ORDER BY id DESC""", (since, camera)):
+        if not e["raw_plate"] or levenshtein(e["raw_plate"], plate) <= 3:
+            ex("UPDATE events SET linked=NULL WHERE linked=?", (e["id"],))
+            ex("DELETE FROM events WHERE id=?", (e["id"],))
+            return e
+    return None
 
 
 def approach_state(e) -> str:

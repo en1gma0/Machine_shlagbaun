@@ -115,10 +115,29 @@ class Hub:
                     return None
             self._recent[(cam.group, plate)] = now
         outside = cam.group == "out"
-        if outside and db.recent_inner_event(plate, config.APPROACH_WINDOW_SEC):
-            return None  # эта машина только что заехала или выезжает - «подъехала» не нужно
-        direction = "approach" if outside else (
-            cam.direction if cam.direction in ("entry", "exit") else db.guess_direction(plate))
+        dropped = db.drop_recent_noplate(cam.name, plate, 20)  # эта машина уже записана «без номера»
+        if dropped and dropped["snapshot"]:
+            for suffix in (".jpg", "_plate.jpg"):
+                (config.SNAP_DIR / f"{dropped['snapshot']}{suffix}").unlink(missing_ok=True)
+        if outside:
+            # Двор -> улица = машина выезжает. Отдельное «подъехала» не пишем, а проезд во дворе - это выезд.
+            e = db.recent_inner_event(plate, config.APPROACH_WINDOW_SEC)
+            if e is None:
+                e = db.recent_inner_unseen(config.EXIT_MATCH_SEC, noplate_only=True)
+                if e is not None:  # двор номер не прочитал, а улица прочитала - подсказываем
+                    db.ex("UPDATE events SET suggest=? WHERE id=?", (plate, e["id"]))
+            if e is not None:
+                fixed = db.mark_left(e["id"])
+                log.info("[%s] %s: это машина из события #%s (выезжает)%s", cam.name, plate, e["id"],
+                         ", направление исправлено на выезд" if fixed else "")
+                return None
+            direction = "approach"
+        elif cam.direction in ("entry", "exit"):
+            direction = cam.direction
+        elif db.find_approach(plate, config.APPROACH_WINDOW_SEC):
+            direction = "entry"  # улица -> двор = въезд
+        else:
+            direction = db.guess_direction(plate)
         d = db.decide(plate, direction)
         # Снаружи только запоминаем номер и решение; шлагбаум открывает проезд у внутренней камеры
         should_open = not outside and (d["allowed"] or (direction == "exit" and config.EXIT_OPEN_ALL))
@@ -165,6 +184,13 @@ class Hub:
                 return None
             cam.last_unknown_ts = time.time()
         outside = cam.group == "out"
+        if outside:
+            e = db.recent_inner_unseen(config.EXIT_MATCH_SEC)
+            if e is not None:  # двор -> улица: та же машина выезжает, новой записи не нужно
+                fixed = db.mark_left(e["id"])
+                log.info("[%s] машина без номера: это машина из события #%s (выезжает)%s", cam.name, e["id"],
+                         ", направление исправлено на выезд" if fixed else "")
+                return None
         sg = db.suggest_plate(texts, max_distance=3)
         suggest = sg[0] if sg else ""
         direction = "approach" if outside else (cam.direction if cam.direction in ("entry", "exit") else (
@@ -482,6 +508,14 @@ class Camera:
             if (not tr["reported"] and tr["hits"] >= config.UNKNOWN_MIN_HITS
                     and now - tr["first"] >= config.UNKNOWN_AFTER_SEC):
                 tr["reported"] = True
+                # Настоящий номер, даже нечитаемый, даёт 5+ символов. Надписи и логотипы («MAN») - 2-3.
+                if sum(1 for t in tr["texts"] if len(t) >= 5) < 2:
+                    tr["snap"] = None
+                    continue
+                # Эта камера только что записала проезд с номером - скорее всего это та же машина
+                if now - self.last_plate_event_ts < 15:
+                    tr["snap"] = None
+                    continue
                 snap, tr["snap"] = tr["snap"], None
                 threading.Thread(target=self.hub.unknown_vehicle, daemon=True,
                                  args=(self, snap, list(tr["texts"])),

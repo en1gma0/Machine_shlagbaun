@@ -102,6 +102,8 @@ UNKNOWN_REMEMBER_SEC = float(_get("UNKNOWN_REMEMBER_SEC", "60"))  # уже за�
 UNKNOWN_MIN_WIDTH = int(_get("UNKNOWN_MIN_WIDTH", "26"))  # номера уже этого (px) не считаются: слишком далеко
 # Камера «снаружи» записала «подъехала»; если за это время машина не появилась внутри - «не впущена»
 APPROACH_WINDOW_SEC = float(_get("APPROACH_WINDOW_SEC", "180"))
+# Машину без номера с улицы считаем той же, что проехала у внутренней камеры не раньше стольких секунд назад
+EXIT_MATCH_SEC = float(_get("EXIT_MATCH_SEC", "45"))
 
 # --- Шлагбаум ---
 # none      - только журнал
